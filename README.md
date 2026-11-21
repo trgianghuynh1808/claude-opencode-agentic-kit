@@ -363,6 +363,8 @@ claude-opencode-kit/
 │   ├── handoff.sh                  # Claude → OpenCode: queue a task
 │   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
 │   └── notify.sh                   # desktop notification
+├── tools/                          # kit maintenance only (not installed into projects)
+│   └── sync-knowledge.sh           # bundle the kit into kit-source.md for a Claude Project
 ├── template/                       # files copied into your project
 │   ├── CLAUDE.md
 │   ├── AGENTS.md
@@ -377,6 +379,19 @@ claude-opencode-kit/
     ├── playwright.config.ts
     └── opencode-agents/            # sample subagents (optional)
 ```
+
+`tools/sync-knowledge.sh` is for working **on** the kit. It bundles the tracked files (plus new, not-ignored ones)
+into one `kit-source.md` — a file tree, then each script/template in its own code block — and copies it to the
+knowledge folder of a Claude Project, so the Project always sees the current source:
+
+```bash
+tools/sync-knowledge.sh ~/path/to/project-files   # first run: the folder is remembered in .git/
+tools/sync-knowledge.sh                           # after that
+tools/sync-knowledge.sh --dry-run                 # only report whether anything changed
+```
+
+Which files are embedded and in what order is set by `EXCLUDE` and `ORDER` at the top of the script.
+The file is not rewritten when only the date would change.
 
 ## License
 
