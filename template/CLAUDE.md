@@ -51,7 +51,10 @@ After every hand-off, run the loop below on your own. Run long commands with the
 
 The user can interrupt at any time; if they do, follow their instructions instead of the loop.
 
-### Review on request
+### Verify / review on request (manual mode)
+
+When the user says "verify": run Autopilot steps 2–4 once (verify, review, decide), but ask before shipping.
+
 
 When the user asks for a review: read the task file (including "Test status" and "Verify") and `git diff main...HEAD`; report bugs, deviations from the plan and failed or missing test cases; do not rewrite correct code; propose fixes as a follow-up plan unless asked to fix directly; end with one line saying whether it is ready to ship.
 

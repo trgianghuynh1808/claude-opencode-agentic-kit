@@ -34,7 +34,7 @@ DEFAULT_VERIFY_MODEL="opencode-go/gemini-4-argon"
 DEFAULT_VERIFY_URL="http://localhost:5173"
 DEFAULT_CHECK_HINT="lệnh typecheck/lint và các test liên quan theo mục Commands trong AGENTS.md"
 DEFAULT_VERIFY_HINT=""
-DEFAULT_VERIFY_AGENT="opencode"   # opencode = OpenCode tự Verify · claude = để Claude Verify khi bạn gõ "verify"
+DEFAULT_VERIFY_AGENT="claude"     # claude = Claude Verify (Autopilot) · opencode = OpenCode tự Verify ngay sau khi code xong
 
 CONFIG=".agents/config.sh"
 # shellcheck source=/dev/null
@@ -299,7 +299,7 @@ while (( runs < MAX_RUNS )); do
       exit 0
     fi
     if [[ "$VERIFY_AGENT" == "claude" ]]; then
-      ok "   Verify $mode giao cho Claude. Tiếp theo: mở Claude → /clear → gõ verify (Claude verify + review luôn)."
+      ok "   Verify $mode giao cho Claude (Autopilot tự tiếp tục; chế độ manual: gõ verify trong Claude)."
       exit 0
     fi
     set +e; verify "$mode"; rc=$?; set -e

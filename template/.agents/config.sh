@@ -29,9 +29,9 @@ DEFAULT_CHECK_HINT="npm run typecheck và các Playwright spec liên quan (nếu
 DEFAULT_VERIFY_HINT=""
 
 # Ai làm bước Verify trên trình duyệt:
-#   opencode = OpenCode tự chạy ngay sau khi code xong (tốn quota OpenCode)
-#   claude   = script dừng sau khi code xong; bạn gõ "verify" trong Claude (tốn quota Claude, Claude review luôn)
-DEFAULT_VERIFY_AGENT="opencode"
+#   claude   = (mặc định) script dừng sau khi code xong; Claude verify + review trong Autopilot (tốn quota Claude)
+#   opencode = OpenCode tự verify ngay sau khi code xong (tốn quota OpenCode, cần model đọc được ảnh)
+DEFAULT_VERIFY_AGENT="claude"
 
 # Gom tối đa bao nhiêu bước cùng nhãn vào một lần chạy OpenCode
 BATCH_MAX="${BATCH_MAX:-4}"
