@@ -32,7 +32,7 @@ TODO: language/style rules taken from the existing code.
 
 ## Testing Rules
 
-- After each coding step, run the type/lint check and the e2e specs related to that step (see Commands). If there are no specs yet, rely on the type check and note it in the task file.
+- After each coding step, run the type/lint check and only the test command named in that step (see Commands). Do not run the whole suite per step, and do not design or add tests the plan does not ask for. If there are no specs yet, rely on the type check and note it in the task file.
 - When tests fail, read `test-results/results.json` first (the Playwright JSON reporter writes it).
 - In "Test status", report every test case from the task file (T1, T2...) as PASS / FAIL / not written yet, not just an overall result.
 - When a plan step writes a spec, tick the matching test case in "Test cases" once the spec exists.
@@ -44,8 +44,10 @@ TODO: language/style rules taken from the existing code.
 
 ## Verify Phase
 
-- After all plan steps are done, a Verify agent checks the feature in a real browser with `playwright-cli`.
-- It checks every item in "Mục tiêu" and "Test cases", records results in the task file's "## Verify" section with screenshot paths, and turns every checked scenario (PASS or FAIL) into a spec.
+- After all plan steps are done, a Verify agent checks the feature in a real browser with `playwright-cli`, at the level set by the task file's `Verify mode:` line (`none` / `light` / `full`).
+- `light`: run the suite once, open the browser only for test cases a spec cannot check (visual/layout), no new scenarios; write a spec only to reproduce a bug found.
+- `full`: also try up to 2 important edge scenarios and add specs for unchecked scenarios (max 3 new tests).
+- Results go in the task file's "## Verify" section with screenshot paths.
 - The Verify agent must not change app code. Its last line in "## Verify" is exactly `VERIFY: PASS` or `VERIFY: FAIL`.
 
 ## Workflow Rules

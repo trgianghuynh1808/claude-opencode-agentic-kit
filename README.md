@@ -1,82 +1,85 @@
 # claude-opencode-kit
 
-> **Claude lên plan và review. OpenCode code và test. Bạn chỉ duyệt.**
->
-> A small kit that turns Claude Code (planner/reviewer) + OpenCode (cheap executor) into an automatic
-> two-agent workflow: plan → hand-off → step-by-step implementation with model escalation → browser
-> verification → review → squash & ship. Docs are in Vietnamese.
+> **Claude plans, verifies, reviews and ships. OpenCode codes. You approve the plan — the rest runs on autopilot.**
 
-Bộ công cụ nhỏ (vài script bash + file hướng dẫn cho agent) để chia việc code giữa hai agent:
+A small kit (a few bash scripts plus instruction files for the agents) that splits coding work between two agents:
 
-- **Claude Code** (gói Claude Pro/Max): việc cần suy nghĩ — lên plan, review, gỡ chỗ kẹt.
-- **OpenCode** (ví dụ gói OpenCode Go): việc tốn nhiều token — viết code, chạy test, tự kiểm tra trên trình duyệt.
+- **Claude Code** (Claude Pro/Max plan): the thinking work — planning, reviewing, getting unstuck.
+- **OpenCode** (e.g. the OpenCode Go plan): the token-heavy work — writing code, running tests, checking the feature in a real browser.
 
-Mục tiêu: **quota Claude kéo dài hơn nhiều lần**, trong khi chất lượng vẫn được Claude kiểm soát ở đầu (plan) và cuối (review).
+The goal: **make your Claude quota last several times longer**, while Claude still controls quality at the start (the plan) and the end (the review).
 
----
-
-## Mục lục
-
-- [Cách hoạt động](#cách-hoạt-động)
-- [Yêu cầu](#yêu-cầu)
-- [Cài đặt](#cài-đặt)
-- [Thiết lập lần đầu cho project](#thiết-lập-lần-đầu-cho-project)
-- [Dùng hằng ngày](#dùng-hằng-ngày)
-- [File task](#file-task)
-- [Nhãn độ khó, model và leo thang](#nhãn-độ-khó-model-và-leo-thang)
-- [Verify trên trình duyệt](#verify-trên-trình-duyệt)
-- [Nhánh, review và ship](#nhánh-review-và-ship)
-- [Cấu hình](#cấu-hình)
-- [Log và đo thời gian](#log-và-đo-thời-gian)
-- [Xử lý sự cố](#xử-lý-sự-cố)
-- [Cấu trúc repo](#cấu-trúc-repo)
+> **Language note:** the scripts print messages in Vietnamese, and a few conventions use Vietnamese words:
+> difficulty labels `[dễ]` = easy, `[vừa]` = medium, `[khó]` = hard; task-file sections such as
+> `Mục tiêu` (Goals), `Ngữ cảnh` (Context), `Trạng thái hiện tại` (Current status),
+> `Đã thử mà không được` (Tried, didn't work), `Số liệu` (Metrics). Keep these exact strings — the scripts look for them.
 
 ---
 
-## Cách hoạt động
+## Table of contents
+
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [First-time project setup](#first-time-project-setup)
+- [Daily use](#daily-use)
+- [The task file](#the-task-file)
+- [Difficulty labels, models and escalation](#difficulty-labels-models-and-escalation)
+- [Browser verification](#browser-verification)
+- [Branches, review and ship](#branches-review-and-ship)
+- [Configuration](#configuration)
+- [Logs and timing](#logs-and-timing)
+- [Troubleshooting](#troubleshooting)
+- [Repository layout](#repository-layout)
+
+---
+
+## How it works
 
 ```mermaid
 flowchart TD
-    U([Bạn: mô tả task]) --> P[Claude lên plan<br/>plan mode]
-    P --> A{Bạn duyệt?}
-    A -- sửa --> P
-    A -- duyệt --> H[Claude: tạo nhánh task/slug<br/>ghi file task, commit<br/>ghi .agents/queue/*.job]
-    H --> W[watch-tasks.sh nhận việc]
-    W --> R[run-task.sh: OpenCode làm từng nhóm bước<br/>model theo nhãn dễ/vừa/khó]
-    R --> T{Bước xong?}
-    T -- chưa --> E[Leo thang model mạnh hơn]
-    E --> R
-    T -- kẹt ở model mạnh nhất --> K[⛔ Thông báo: chuyển Claude]
-    T -- xong hết --> V[Verify: OpenCode mở trình duyệt<br/>kiểm tra như người dùng, lưu thành test]
-    V --> N[🔔 Thông báo macOS]
-    N --> RV[Bạn gõ review → Claude review]
-    RV --> S[Bạn gõ ship → squash 1 commit → push]
+    U([You: describe a task]) --> P[Claude writes a plan<br/>plan mode]
+    P --> A{You approve?}
+    A -- revise --> P
+    A -- approve --> H[Claude: branch task/slug, task file, commit<br/>scripts/handoff.sh]
+    H --> W[watch-tasks.sh → run-task.sh<br/>OpenCode codes step groups, model by label/folder]
+    W --> T{Result}
+    T -- step fails --> E[Escalate to a stronger model] --> W
+    T -- stuck / done --> C[Claude: scripts/wait-task.sh returns]
+    C -- done --> V[Claude verifies in the browser]
+    V --> RV[Claude reviews the diff]
+    RV -- pass --> S[Ship: squash 1 commit → push → 🔔]
+    RV -- blocking issues --> F[Fix cycle: Claude appends Fix steps<br/>commit plan fix-n, hand off again]
+    C -- stuck --> F
+    F --> W
+    F -- after 2 fix cycles --> X[🔔 Stop and ask you]
 ```
 
-Hai agent không nói chuyện trực tiếp. **Mọi context nằm trong repo**:
+The two agents never talk to each other directly. **All context lives in the repo:**
 
-| File | Vai trò |
+| File | Role |
 |---|---|
-| `AGENTS.md` | Kiến thức cố định về project: kiến trúc, lệnh, quy ước, quy tắc test. Mọi agent đều đọc. |
-| `CLAUDE.md` | `@AGENTS.md` + hướng dẫn riêng cho Claude: định dạng plan, cách giao việc, review, ship. |
-| `.agents/tasks/<task>.md` | Plan, ngữ cảnh, test cases, trạng thái, kết quả test và Verify của một task. |
-| `.agents/queue/*.job` | "Hộp thư" Claude dùng để giao việc cho OpenCode. |
-| Git | Mỗi bước một commit trên nhánh `task/<slug>`; ship thì gộp thành một commit. |
+| `AGENTS.md` | Stable project knowledge: architecture, commands, conventions, testing rules. Every agent reads it. |
+| `CLAUDE.md` | `@AGENTS.md` plus Claude-only instructions: plan format, hand-off, review, ship. |
+| `.agents/tasks/<task>.md` | One task's plan, context, test cases, status, test results and verification. |
+| `.agents/queue/*.job` | The "mailbox" Claude uses to hand work to OpenCode (`scripts/handoff.sh`). |
+| `.agents/status/*.status` | Task state written by the watcher (`queued → running → done / stuck`), read by `scripts/wait-task.sh`. |
+| Git | One commit per step on branch `task/<slug>`; shipping squashes them into one commit. |
 
 ---
 
-## Yêu cầu
+## Requirements
 
-- macOS hoặc Linux, `bash`, `git` (thông báo desktop chỉ có trên macOS)
-- [Claude Code](https://code.claude.com/docs/en/setup) đăng nhập bằng gói Claude (Pro/Max)
-- [OpenCode](https://opencode.ai) đã `/connect` với một nhà cung cấp model (ví dụ OpenCode Go)
-- Node.js + [Playwright Test](https://playwright.dev) cho e2e test
-- [`playwright-cli`](https://playwright.dev/docs/getting-started-cli) cho bước Verify: `npm install -g @playwright/cli@latest`
-- Terminal chia đôi được (iTerm2, Zed, tmux...)
+- macOS or Linux, `bash`, `git` (desktop notifications are macOS-only)
+- [Claude Code](https://code.claude.com/docs/en/setup) signed in with a Claude plan (Pro/Max)
+- [OpenCode](https://opencode.ai) with a model provider connected via `/connect` (e.g. OpenCode Go)
+- Node.js + [Playwright Test](https://playwright.dev) for e2e tests
+- [`playwright-cli`](https://playwright.dev/docs/getting-started-cli) for the Verify phase: `npm install -g @playwright/cli@latest`
+- A terminal you can split (iTerm2, Zed, tmux...)
 
 ---
 
-## Cài đặt
+## Installation
 
 ```bash
 git clone https://github.com/<you>/claude-opencode-kit.git
@@ -84,33 +87,33 @@ cd claude-opencode-kit
 ./install.sh /path/to/your-project
 ```
 
-Installer:
+The installer:
 
-- **luôn cập nhật** `scripts/run-task.sh`, `scripts/watch-tasks.sh`, `scripts/log-gaps.sh` (chạy lại để nâng cấp kit);
-- **chỉ tạo nếu chưa có** `CLAUDE.md`, `AGENTS.md`, `.agents/config.sh`, `.agents/tasks/_TEMPLATE.md` (`--force` để ghi đè);
-- thêm `.agents/queue/`, `.agents/run.log`, `test-results/`, `playwright-report/` vào `.gitignore`.
+- **always updates** everything in `scripts/` (re-run it to upgrade the kit);
+- **creates only if missing** `CLAUDE.md`, `AGENTS.md`, `.agents/config.sh`, `.agents/tasks/_TEMPLATE.md` (use `--force` to overwrite);
+- adds `.agents/queue/`, `.agents/status/`, `.agents/run.log`, `test-results/`, `playwright-report/` to `.gitignore`.
 
-> Project đã có `CLAUDE.md`? Installer giữ nguyên file cũ. Hãy chép phần **Handoff to OpenCode** từ
-> `template/CLAUDE.md` vào cuối file của bạn và thêm dòng `@AGENTS.md` ở đầu.
+> Your project already has a `CLAUDE.md`? The installer leaves it alone. Copy the **Handoff to OpenCode**
+> section from `template/CLAUDE.md` to the end of your file, and add `@AGENTS.md` at the top.
 
 ---
 
-## Thiết lập lần đầu cho project
+## First-time project setup
 
-**1. Sửa `.agents/config.sh`** — model cho từng nhãn, URL dev cho Verify, agent chạy gì sau mỗi bước. Xem [Cấu hình](#cấu-hình).
+**1. Edit `.agents/config.sh`** — models per label, the dev URL for Verify, and what the agent runs after each step. See [Configuration](#configuration).
 
-**2. Điền `AGENTS.md`.** Mở OpenCode ở thư mục project, dán prompt trong [`prompts/generate-agents-md.md`](prompts/generate-agents-md.md). Đọc lại và sửa tay — file này mọi agent đọc ở mọi phiên, đáng 10 phút.
+**2. Fill in `AGENTS.md`.** Open OpenCode in the project and paste the prompt from [`prompts/generate-agents-md.md`](prompts/generate-agents-md.md). Then read it and fix it by hand — every agent reads this file in every session, so it is worth 10 minutes.
 
-**3. Playwright Test** (nếu chưa có):
+**3. Playwright Test** (if you don't have it yet):
 
 ```bash
-npm init playwright@latest   # TypeScript, thư mục tests, không GitHub Actions, cài browser
+npm init playwright@latest   # TypeScript, tests folder, no GitHub Actions, install browsers
 rm -f tests/example.spec.ts && rm -rf tests-examples
 ```
 
-Rồi chỉnh `playwright.config.ts` theo [`examples/playwright.config.ts`](examples/playwright.config.ts). Bắt buộc có reporter JSON ra `test-results/results.json`.
+Then adjust `playwright.config.ts` following [`examples/playwright.config.ts`](examples/playwright.config.ts). The JSON reporter writing `test-results/results.json` is required.
 
-**4. (Nên có) Test hook.** Một object như `window.__APP__` chỉ bật với `?test=1`, cho test đọc/set state thay vì click qua cả chuỗi màn hình. Có thể để Claude làm như task đầu tiên. Ghi cách dùng vào dòng "Test hook" trong `AGENTS.md`.
+**4. (Recommended) A test hook.** An object such as `window.__APP__`, enabled only with `?test=1`, that lets tests read and set app state instead of clicking through a long chain of screens. You can have Claude build it as your first task. Document how to use it on the "Test hook" line in `AGENTS.md`.
 
 **5. Commit:**
 
@@ -118,160 +121,169 @@ Rồi chỉnh `playwright.config.ts` theo [`examples/playwright.config.ts`](exam
 git add -A && git commit -m "chore: add claude-opencode-kit"
 ```
 
-**6. Kiểm tra Claude đọc được AGENTS.md:** chạy `claude`, hỏi *"Codebase map của project này là gì?"*.
+**6. Check that Claude reads AGENTS.md:** run `claude` and ask *"What is the codebase map of this project?"*.
 
 ---
 
-## Dùng hằng ngày
+## Daily use
 
-Chia terminal làm đôi, cả hai ở thư mục project:
+Split your terminal in two, both panes in the project folder:
 
-| Ô trái | Ô phải |
+| Left pane | Right pane |
 |---|---|
-| `scripts/watch-tasks.sh` | `claude` → `/model` chọn Sonnet → Shift+Tab tới **plan mode** |
+| `scripts/watch-tasks.sh` | `claude` → `/model` pick Sonnet → Shift+Tab to **plan mode** |
 
-> Mẹo: để `npm run dev` chạy sẵn ở một ô thứ ba — Playwright dùng lại server, mỗi bước nhanh hơn nhiều.
+> Tip: keep `npm run dev` running in a third pane — Playwright reuses the server, so every step is much faster.
 
-1. **Ô phải:** mô tả task (mẫu trong [`prompts/plan-task.md`](prompts/plan-task.md)).
-2. **Duyệt plan.** Claude tự tạo nhánh, ghi file task, commit, giao việc — rồi dừng.
-3. **Ô trái** tự chạy. Màn hình hiện tóm tắt:
+1. **Right pane:** describe the task (templates in [`prompts/plan-task.md`](prompts/plan-task.md)). Use Claude's auto-accept/auto mode so it can run commands on its own after you approve.
+2. **Approve the plan.** From here on everything is automatic (**Autopilot**, defined in `CLAUDE.md`):
+   - Claude creates the branch, writes and commits the task file, and hands it off with `scripts/handoff.sh`.
+   - The left pane runs the steps with OpenCode and shows a compact summary:
 
-   ```
-   ▶ Bước 1–2/5  [vừa] glm-5.3
-     1. client/src/ui/OrdersPanel.ts → recipeSteps: ...
-     2. client/src/style.css → .order .part-into: ...
-       ← Edit client/src/ui/OrdersPanel.ts
-       $ npm run typecheck
-     ● feat(orders): show container line last
-      client/src/ui/OrdersPanel.ts | 6 +++---
-     ✓ Bước 1 xong
-     ✓ Bước 2 xong
-     ⏱  2m10s
-   ```
+     ```
+     ▶ Bước 1–2/5  [vừa] glm-5.3
+       1. client/src/ui/OrdersPanel.ts → recipeSteps: ...
+         ← Edit client/src/ui/OrdersPanel.ts
+       ● feat(orders): show container line last
+        client/src/ui/OrdersPanel.ts | 6 +++---
+       ✓ Bước 1 xong
+     ```
 
-4. **Thông báo macOS** "OpenCode đã xong ✅" → ô phải: `/clear`, gõ `review`.
-5. Ổn thì gõ `ship` → gộp thành 1 commit trên `main` và push.
+     (`Bước` = step, `xong` = done.)
+   - Meanwhile Claude waits with `scripts/wait-task.sh` (it returns every ~9 minutes and Claude calls it again).
+   - When OpenCode is done, Claude **verifies** in the browser, **reviews** the diff, and if everything passes **ships** (squash → push) and sends a 🔔 notification.
+   - If Verify/review finds blocking problems, or OpenCode gets stuck, Claude runs a **fix cycle**: it appends `Fix:` steps to the same task file, commits `plan(fix-n): …`, hands it back to OpenCode and waits again.
+   - After **2 fix cycles** without success, Claude stops and notifies you ("Cần bạn ⛔" = needs you).
+3. Want to stay in control for one task? Say **"manual"** when you request it: Claude stops after the hand-off and you drive the rest (`review`, `ship`).
 
-Gặp "OpenCode cần trợ giúp ⛔": script in sẵn câu để dán cho Claude. Claude sửa xong, giao lại phần còn lại:
+You can interrupt Claude at any time; it then follows your instructions instead of the loop.
 
-```bash
-echo .agents/tasks/<file>.md > .agents/queue/$(date +%s).job
-```
-
-Chạy tay không qua watcher: `scripts/run-task.sh .agents/tasks/<file>.md` (script tự tiếp tục từ bước chưa tick).
+To run without the watcher: `scripts/run-task.sh .agents/tasks/<file>.md` (it resumes from the first unchecked step).
 
 ---
 
-## File task
+## The task file
 
-Template: [`template/.agents/tasks/_TEMPLATE.md`](template/.agents/tasks/_TEMPLATE.md). Claude viết, OpenCode cập nhật.
+Template: [`template/.agents/tasks/_TEMPLATE.md`](template/.agents/tasks/_TEMPLATE.md). Claude writes it, OpenCode keeps it updated.
 
 ```markdown
-# Task: Đưa dòng tô/đĩa/ly xuống cuối công thức
+# Task: Move the bowl/plate/cup line to the end of the recipe
 
-## Mục tiêu
-## Quyết định đã chốt
-## Ngữ cảnh                 ← Claude ghi sẵn file/hàm/type cần biết, OpenCode khỏi tự tìm
+## Mục tiêu                       ← Goals
+## Quyết định đã chốt             ← Decisions made
+## Ngữ cảnh                       ← Context: files/functions/types Claude already found, so OpenCode doesn't re-explore
 ## Plan
 - [ ] 1. [dễ] client/src/ui/OrdersPanel.ts → recipeSteps: ...
-- [ ] 2. [vừa] tests/orders-panel.spec.ts: viết T1–T2
+- [ ] 2. [vừa] tests/orders-panel.spec.ts: write T1–T2
 ## Test cases
-- [ ] T1. Vật chứa nằm cuối — .part-into là bước cuối — tests/orders-panel.spec.ts
-## Trạng thái hiện tại
-## Test status              ← từng test: PASS / FAIL / chưa viết
-## Verify                   ← bước Verify tự điền, dòng cuối VERIFY: PASS|FAIL
-## Đã thử mà không được     ← agent ghi khi kẹt, để agent sau không lặp lại
-## Số liệu
+- [ ] T1. Container line is last — .part-into is the final step — tests/orders-panel.spec.ts   (max 3)
+## Trạng thái hiện tại             ← Current status
+## Test status                    ← per test: PASS / FAIL / not written yet
+## Verify                         ← filled by the Verify phase; last line VERIFY: PASS|FAIL
+(top of file) Verify mode: light  ← none | light | full
+## Đã thử mà không được           ← what was tried and failed, so the next agent doesn't repeat it
+## Số liệu                        ← metrics (time, quota)
 ```
 
-Script nhận diện bước bằng mẫu `- [ ] N. [nhãn] ...` — giữ đúng định dạng này.
+The script detects steps with the pattern `- [ ] N. [label] ...` — keep that exact format.
 
 ---
 
-## Nhãn độ khó, model và leo thang
+## Difficulty labels, models and escalation
 
-| Nhãn | Ý nghĩa (Claude gắn khi lên plan) | Model mặc định |
+| Label | Meaning (Claude assigns it when planning) | Default model |
 |---|---|---|
-| `[dễ]` | 1 file, thay đổi cơ học | `MODELS[0]` |
-| `[vừa]` | vài file, theo pattern có sẵn | `MODELS[1]` |
-| `[khó]` | thiết kế mới, xuyên nhiều tầng, logic đồng bộ | `MODELS[2]` |
+| `[dễ]` easy | one file, mechanical change | `MODELS[0]` |
+| `[vừa]` medium | a few files, following existing patterns | `MODELS[1]` |
+| `[khó]` hard | new design, crosses several layers, tricky state/sync logic | `MODELS[2]` |
 
-- **Gom bước:** các bước liên tiếp cùng nhãn chạy trong **một** phiên OpenCode (tối đa `BATCH_MAX`), để agent không phải đọc lại context ở mỗi bước.
-- **Nối phiên:** từ lần chạy thứ hai, script dùng `opencode run --continue`, nên model sau vẫn thấy những gì model trước đã đọc/làm (`REUSE_SESSION=0` để tắt).
-- **Leo thang:** bước chưa được tick sau khi chạy → chạy lại riêng bước đó với model mức trên. Kẹt ở `[khó]` → dừng, chuyển Claude.
-- **Bảo vệ quota:** tổng số lần gọi OpenCode cho một task tối đa `MAX_RUNS`.
+- **Batching:** consecutive steps with the same label run in **one** OpenCode session (up to `BATCH_MAX`), so the agent doesn't re-read the context for every step.
+- **Session reuse:** from the second run on, the script uses `opencode run --continue`, so the next model still sees what the previous one read and did (`REUSE_SESSION=0` to disable).
+- **Escalation:** a step still unchecked after a run is retried on its own with the next model up (levels whose model is the same as the one that just failed are skipped). Stuck at `[khó]` → stop and hand over to Claude.
+- **Per-folder models:** with `MEDIUM_RULES`, `[vừa]` steps can use different models depending on the folder of the first file path in the step line, so start each step with its main file path.
+- **Quota guard:** at most `MAX_RUNS` OpenCode invocations per task.
 
-Script chọn model bằng cách đọc chữ `[dễ]`/`[vừa]`/`[khó]` trong dòng plan — model không "biết" nhãn. Đổi model trong `.agents/config.sh`.
-
----
-
-## Verify trên trình duyệt
-
-Sau khi mọi bước đã tick, một agent (`VERIFY_MODEL`, cần đọc được ảnh) dùng `playwright-cli`:
-
-1. chạy toàn bộ e2e test, ghi kết quả từng test;
-2. mở app ở `VERIFY_URL` (nhiều session nếu là tính năng nhiều người dùng);
-3. kiểm tra từng ý trong *Mục tiêu* và *Test cases*, chụp ảnh;
-4. ghi mục `## Verify` (PASS/FAIL, đường dẫn ảnh);
-5. **lưu mọi kịch bản đã kiểm tra thành spec** — lần sau `npx playwright test` tự bắt lỗi, không tốn token;
-6. không sửa code app.
-
-Bỏ qua Verify cho một lần chạy: `VERIFY=0 scripts/run-task.sh ...`
-
-Test e2e chạy **headless** (không hiện cửa sổ). Muốn xem: `npx playwright test --ui` (timeline từng bước kèm ảnh) hoặc `--headed`; với config mẫu, `HEADED=1` để luồng tự động cũng hiện cửa sổ.
+The script picks the model by reading `[dễ]`/`[vừa]`/`[khó]` in the plan line — the models themselves don't "know" about labels. Change models in `.agents/config.sh`.
 
 ---
 
-## Nhánh, review và ship
+## Browser verification
+
+Once every step is checked, an agent (`VERIFY_MODEL`, must accept images) checks the feature with `playwright-cli`.
+How deep it goes is set by the `Verify mode:` line at the top of the task file (Claude picks it when planning):
+
+| Mode | When | What the agent does |
+|---|---|---|
+| `none` | refactors, text/config changes, nothing user-visible | skips Verify |
+| `light` (default) | normal UI / feature changes | runs the suite once; opens the browser **only** for test cases a spec can't check (visual/layout), one screenshot each; no new scenarios; writes a spec only to reproduce a bug it found |
+| `full` | new user flows, multi-user/sync logic, risky changes | also tries up to 2 important edge scenarios and adds specs for unchecked ones (max 3 new tests) |
+
+Every mode records results in `## Verify` and ends with `VERIFY: PASS` or `VERIFY: FAIL`. The agent never changes app code.
+
+Keeping tests lean is what keeps runs fast. `CLAUDE.md` tells Claude to plan **at most 3 test cases per task**, to name the **exact test command** in each step (e.g. `npx playwright test tests/orders.spec.ts -g "T1"`), and the executor is told to run only that command and not to invent extra tests.
+
+**Who verifies.** By default OpenCode does it right after the code steps. If your OpenCode quota runs short while Claude has room to spare, set `DEFAULT_VERIFY_AGENT="claude"`: the script stops after the code steps, you type `verify` in Claude, and Claude runs the same Verify and then the review in one go.
+
+Override the mode for one run: `VERIFY_MODE=full scripts/run-task.sh ...` · Skip Verify for one run: `VERIFY=0 scripts/run-task.sh ...`
+
+E2e tests run **headless** (no window). To watch them: `npx playwright test --ui` (step-by-step timeline with screenshots) or `--headed`; with the example config, `HEADED=1` shows the browser in the automated flow too.
+
+---
+
+## Branches, review and ship
 
 ```
 main ──●──────────────────────────────●  feat(orders): show container line last
-        \                            ↑ ship: squash 1 commit + push
-         task/orders-container-last ─●─●─●─●  (plan, từng bước, verify)
+        \                            ↑ ship: squash into 1 commit + push
+         task/orders-container-last ─●─●─●─●  (plan, each step, verify)
 ```
 
-- Claude tạo nhánh `task/<slug>` trước khi commit plan. Nếu `run-task.sh` được chạy khi đang ở `main`, nó tự chuyển sang `task/<tên-file>`.
-- `review`: Claude đọc file task + `git diff main...HEAD`, báo lỗi/lệch plan/test thiếu, kết luận có ship được không.
-- `ship`: squash merge vào `main`, một commit Conventional Commit, push, xóa nhánh. Push bị từ chối → Claude dừng và báo, **không force push**.
+- Claude creates `task/<slug>` before committing the plan. If `run-task.sh` is started while on `main`, it switches to `task/<file-name>` itself.
+- `review`: Claude reads the task file and `git diff main...HEAD`, reports bugs, deviations from the plan and missing tests, and says whether it is ready to ship.
+- `ship`: squash-merge into `main`, one Conventional Commit, push, delete the branch. If the push is rejected, Claude stops and tells you — **it never force-pushes**.
 
-Hướng dẫn đầy đủ cho Claude nằm trong [`template/CLAUDE.md`](template/CLAUDE.md). Mẫu câu: [`prompts/review-and-ship.md`](prompts/review-and-ship.md).
+Claude's full instructions are in [`template/CLAUDE.md`](template/CLAUDE.md). Example phrases: [`prompts/review-and-ship.md`](prompts/review-and-ship.md).
 
 ---
 
-## Cấu hình
+## Configuration
 
-`.agents/config.sh` (được `source` bởi `run-task.sh`):
+`.agents/config.sh` (sourced by `run-task.sh`):
 
-| Biến | Ý nghĩa |
+| Variable | Meaning |
 |---|---|
-| `MODELS=(dễ vừa khó)` | Model cho từng nhãn, dạng `provider/model` (xem `opencode models`) |
-| `DEFAULT_VERIFY_MODEL` | Model cho Verify (cần đọc được ảnh) |
-| `DEFAULT_VERIFY_URL` | URL app khi chạy dev, có thể kèm `?test=1` |
-| `DEFAULT_CHECK_HINT` | Agent chạy gì sau mỗi bước, viết như câu lệnh |
-| `DEFAULT_VERIFY_HINT` | Gợi ý thêm cho Verify (ví dụ "luôn mở 2 session") |
-| `BATCH_MAX` | Số bước cùng nhãn tối đa trong một lần chạy |
-| `MAX_RUNS` | Số lần gọi OpenCode tối đa cho một task |
+| `MODELS=(easy medium hard)` | Model per label, as `provider/model` (see `opencode models`) |
+| `MEDIUM_RULES=("prefix=model" ...)` | Optional: pick the `[vừa]` model by the folder of the first file a step names (e.g. `client/` → stronger model, `server/` → cheaper model). Unmatched steps use `MODELS[1]`. |
+| `DEFAULT_VERIFY_MODEL` | Model for Verify (must accept images) |
+| `DEFAULT_VERIFY_URL` | App URL in dev, may include `?test=1` |
+| `DEFAULT_CHECK_HINT` | What the agent runs after each step, written as an instruction |
+| `DEFAULT_VERIFY_HINT` | Extra guidance for Verify (e.g. "always open 2 sessions") |
+| `DEFAULT_VERIFY_AGENT` | `opencode` (OpenCode verifies right away) or `claude` (you type `verify` in Claude, which also reviews) |
+| `BATCH_MAX` | Max same-label steps per run |
+| `MAX_RUNS` | Max OpenCode invocations per task |
 
-Biến môi trường ghi đè cho một lần chạy:
+Environment variables to override a single run:
 
-| Biến | Mặc định | Tác dụng |
+| Variable | Default | Effect |
 |---|---|---|
-| `VERBOSE=1` | 0 | In toàn bộ output thô của OpenCode |
-| `ACTIONS=0` | 1 | Ẩn dòng hành động (sửa file, chạy lệnh), chỉ hiện commit |
-| `ACTION_REGEX=...` | | Mẫu nhận diện dòng hành động nếu OpenCode in theo định dạng khác |
-| `REUSE_SESSION=0` | 1 | Mỗi nhóm bước một phiên OpenCode mới |
-| `BATCH_MAX=1` | 4 | Mỗi lần chạy đúng một bước |
-| `MAX_RUNS=30` | 20 | Nâng giới hạn cho task lớn |
-| `VERIFY=0` | 1 | Bỏ qua Verify |
-| `VERIFY_MODEL`, `VERIFY_URL` | | Ghi đè giá trị trong config |
+| `VERBOSE=1` | 0 | Print OpenCode's full raw output |
+| `ACTIONS=0` | 1 | Hide action lines (file edits, commands), show commits only |
+| `ACTION_REGEX=...` | | Pattern for action lines, if OpenCode prints them in another format |
+| `REUSE_SESSION=0` | 1 | A fresh OpenCode session for every step group |
+| `BATCH_MAX=1` | 4 | Exactly one step per run |
+| `MAX_RUNS=30` | 20 | Raise the limit for big tasks |
+| `VERIFY=0` | 1 | Skip Verify |
+| `VERIFY_MODE=full` | from task file, else `light` | Force Verify depth: `none` / `light` / `full` |
+| `VERIFY_AGENT=claude` | `opencode` | Stop after the code steps and let Claude verify (type `verify`) |
+| `VERIFY_MODEL`, `VERIFY_URL` | | Override the config values |
 
-Ví dụ subagent cho OpenCode (tùy chọn, không bắt buộc với script): [`examples/opencode-agents/`](examples/opencode-agents) — chép vào `.opencode/agents/`.
+Example OpenCode subagents (optional, the scripts don't need them): [`examples/opencode-agents/`](examples/opencode-agents) — copy into `.opencode/agents/`.
 
 ---
 
-## Log và đo thời gian
+## Logs and timing
 
-- Màn hình chỉ hiện tóm tắt; **toàn bộ output** ghi vào `.agents/run.log`, mỗi dòng có giờ và số giây kể từ đầu lần chạy:
+- The screen shows a summary only; **the full output** goes to `.agents/run.log`, each line stamped with the clock time and seconds since the run started:
 
   ```
   === 2026-11-21 18:30:02 · bước 1–2 · opencode-go/glm-5.3 ===
@@ -279,59 +291,64 @@ Ví dụ subagent cho OpenCode (tùy chọn, không bắt buộc với script): 
   18:30:42 +40s │ $ npx playwright test tests/orders-panel.spec.ts
   ```
 
-- Xem trực tiếp: `tail -f .agents/run.log` · xem lại: `less -R .agents/run.log`
-- **Tìm chỗ chậm:**
+- Follow live: `tail -f .agents/run.log` · browse later: `less -R .agents/run.log`
+- **Find what is slow:**
 
   ```bash
-  scripts/log-gaps.sh        # lần chạy gần nhất
-  scripts/log-gaps.sh 5      # 5 lần chạy gần nhất (cả task)
+  scripts/log-gaps.sh        # latest run
+  scripts/log-gaps.sh 5      # last 5 runs (a whole task)
   ```
 
-  In thời gian từng lần chạy và các khoảng chờ lâu nhất kèm việc đang diễn ra ngay trước đó (chạy test? typecheck? model đang nghĩ?).
+  Prints the duration of each run and the longest gaps, together with what was happening right before each one (running tests? type check? the model thinking?).
 
 ---
 
-## Xử lý sự cố
+## Troubleshooting
 
-| Triệu chứng | Nguyên nhân / cách xử lý |
+| Symptom | Cause / fix |
 |---|---|
-| `Working tree đang có thay đổi chưa commit` | Script chỉ chạy khi repo sạch (để mỗi bước rollback được). Commit/stash trước. Nhớ ignore `.agents/queue/`. |
-| `This OpenCode Go model is hosted outside Europe and the United States` | Tài khoản OpenCode đang giới hạn vùng. Console → Settings → Privacy → Regions → Global, hoặc đổi sang model host ở US/EU trong `config.sh`. |
-| Ô trái đứng im ở bước đầu | `opencode run` có thể đang chờ cấp quyền. Xem `opencode run --help` / cấu hình permissions của OpenCode. |
-| Kết quả lạ khi đổi model giữa chừng | Thử `REUSE_SESSION=0`. |
-| Script nối nhầm phiên | `--continue` nối phiên gần nhất trong project — đừng mở `opencode` tương tác ở cùng repo khi script đang chạy (dùng git worktree). |
-| Không thấy dòng `← Edit` / `$ ...` | OpenCode in hành động theo định dạng khác. Xem `grep -nE "Edit|Write|Bash" .agents/run.log`, rồi đặt `ACTION_REGEX`. |
-| Mỗi bước rất chậm ở phần test | Để `npm run dev` chạy sẵn (`reuseExistingServer: true`). Kiểm tra bằng `scripts/log-gaps.sh`. |
-| `claude: command not found` | Cài Claude Code CLI ([hướng dẫn](https://code.claude.com/docs/en/setup)), thêm `~/.local/bin` vào `PATH`. |
-| iTerm làm mờ ô không chọn | Settings → Appearance → Dimming → bỏ "Dim inactive split panes". |
-| Chạy song song 2 task | Mỗi task một `git worktree` riêng, mỗi worktree một watcher. |
+| `Working tree đang có thay đổi chưa commit` (uncommitted changes) | The script only runs on a clean tree, so every step can be rolled back. Commit or stash first. Make sure `.agents/queue/` is ignored. |
+| `This OpenCode Go model is hosted outside Europe and the United States` | Your OpenCode account is region-restricted. Console → Settings → Privacy → Regions → Global, or switch to US/EU-hosted models in `config.sh`. |
+| The left pane hangs on the first step | `opencode run` may be waiting for a permission. See `opencode run --help` / OpenCode's permission settings. |
+| Odd results when switching models mid-task | Try `REUSE_SESSION=0`. |
+| The script continues the wrong session | `--continue` resumes the most recent session in the project — don't run interactive `opencode` in the same repo while the script runs (use a git worktree). |
+| No `← Edit` / `$ ...` lines on screen | OpenCode prints actions in a different format. Check `grep -nE "Edit|Write|Bash" .agents/run.log`, then set `ACTION_REGEX`. |
+| Every step is slow in the test phase | Keep `npm run dev` running (`reuseExistingServer: true`). Confirm with `scripts/log-gaps.sh`. |
+| `claude: command not found` | Install the Claude Code CLI ([guide](https://code.claude.com/docs/en/setup)) and add `~/.local/bin` to `PATH`. |
+| iTerm dims the inactive pane | Settings → Appearance → Dimming → uncheck "Dim inactive split panes". |
+| Running two tasks in parallel | One `git worktree` per task, one watcher per worktree. |
+| Claude says the task is still `queued` / watcher not running | Start `scripts/watch-tasks.sh` in the left pane; Claude retries the wait. |
+| Claude keeps asking for permission during Autopilot | Switch Claude Code to auto-accept / auto mode (Shift+Tab) after approving the plan, or allow `scripts/*`, `git` and `npx playwright` in its permission settings. |
 
-**Lưu ý quyền riêng tư:** model miễn phí/"contributor" của nhà cung cấp có thể lưu dữ liệu — không dùng với code công ty. Kiểm tra tab Privacy của nhà cung cấp.
+**Privacy:** a provider's free or "contributor" models may store your data — don't use them with company code. Check your provider's privacy settings.
 
 ---
 
-## Cấu trúc repo
+## Repository layout
 
 ```
 claude-opencode-kit/
-├── install.sh                      # cài/cập nhật kit vào project
+├── install.sh                      # install/upgrade the kit in a project
 ├── scripts/
-│   ├── run-task.sh                 # chạy các bước của một task + Verify
-│   ├── watch-tasks.sh              # chờ việc từ Claude qua .agents/queue
-│   └── log-gaps.sh                 # phân tích chỗ chậm trong run.log
-├── template/                       # file được chép vào project
+│   ├── run-task.sh                 # run a task's steps + Verify
+│   ├── watch-tasks.sh              # wait for jobs from Claude via .agents/queue
+│   ├── log-gaps.sh                 # find slow spots in run.log
+│   ├── handoff.sh                  # Claude → OpenCode: queue a task
+│   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
+│   └── notify.sh                   # desktop notification
+├── template/                       # files copied into your project
 │   ├── CLAUDE.md
 │   ├── AGENTS.md
 │   └── .agents/
 │       ├── config.sh
 │       └── tasks/_TEMPLATE.md
-├── prompts/                        # mẫu prompt
+├── prompts/                        # prompt templates (Vietnamese)
 │   ├── generate-agents-md.md
 │   ├── plan-task.md
 │   └── review-and-ship.md
 └── examples/
     ├── playwright.config.ts
-    └── opencode-agents/            # subagent mẫu (tùy chọn)
+    └── opencode-agents/            # sample subagents (optional)
 ```
 
 ## License

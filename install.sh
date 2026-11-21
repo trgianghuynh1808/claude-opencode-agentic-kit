@@ -48,7 +48,11 @@ echo "Scripts:"
 copy_always scripts/run-task.sh    scripts/run-task.sh
 copy_always scripts/watch-tasks.sh scripts/watch-tasks.sh
 copy_always scripts/log-gaps.sh    scripts/log-gaps.sh
-chmod +x "$TARGET"/scripts/run-task.sh "$TARGET"/scripts/watch-tasks.sh "$TARGET"/scripts/log-gaps.sh
+copy_always scripts/handoff.sh     scripts/handoff.sh
+copy_always scripts/wait-task.sh   scripts/wait-task.sh
+copy_always scripts/notify.sh      scripts/notify.sh
+chmod +x "$TARGET"/scripts/run-task.sh "$TARGET"/scripts/watch-tasks.sh "$TARGET"/scripts/log-gaps.sh \
+         "$TARGET"/scripts/handoff.sh "$TARGET"/scripts/wait-task.sh "$TARGET"/scripts/notify.sh
 
 echo ""
 echo "Cấu hình và template:"
@@ -56,12 +60,12 @@ copy_once template/CLAUDE.md                 CLAUDE.md
 copy_once template/AGENTS.md                 AGENTS.md
 copy_once template/.agents/config.sh         .agents/config.sh
 copy_once template/.agents/tasks/_TEMPLATE.md .agents/tasks/_TEMPLATE.md
-mkdir -p "$TARGET/.agents/queue"
+mkdir -p "$TARGET/.agents/queue" "$TARGET/.agents/status"
 
 echo ""
 echo ".gitignore:"
 touch "$TARGET/.gitignore"
-for entry in ".agents/queue/" ".agents/run.log" "test-results/" "playwright-report/"; do
+for entry in ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
   if grep -qxF "$entry" "$TARGET/.gitignore" || grep -qxF "/$entry" "$TARGET/.gitignore"; then
     echo "  • $entry đã có"
   else
@@ -88,4 +92,5 @@ Xong. Bước tiếp theo (chi tiết trong README):
   3. Cài Playwright Test nếu chưa có (xem examples/playwright.config.ts).
   4. Commit:  git add -A && git commit -m "chore: add claude-opencode-kit"
   5. Ô trái:  scripts/watch-tasks.sh      Ô phải:  claude (plan mode)
+     Duyệt plan xong, Claude tự chạy tiếp: chờ OpenCode → verify → review → ship (Autopilot).
 EOF

@@ -1,5 +1,8 @@
 # Task: <tên>
 
+Verify mode: light
+<!-- none: refactor/đổi chữ/không ảnh hưởng UI · light: mặc định · full: luồng người dùng mới, nhiều người dùng, logic đồng bộ -->
+
 ## Mục tiêu
 
 ## Quyết định đã chốt
@@ -14,7 +17,7 @@
 - [ ] 1. [dễ|vừa|khó] ...
 
 ## Test cases
-<!-- Claude viết khi lên plan. Mỗi dòng: tên test — kiểm tra điều gì — file spec. Verify có thể thêm kịch bản mới. -->
+<!-- Claude viết khi lên plan. Tối đa 3 test, mỗi test gắn với một ý trong Mục tiêu. Mỗi dòng: tên test — kiểm tra điều gì — file spec. -->
 - [ ] T1. <tên> — <kiểm tra gì> — tests/<file>.spec.ts
 
 ## Trạng thái hiện tại

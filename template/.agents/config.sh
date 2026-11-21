@@ -8,6 +8,14 @@ MODELS=(
   "opencode-go/kimi-k3.1-pro"         # [khó]
 )
 
+# (Tùy chọn) Mức [vừa] chọn model theo thư mục của file đầu tiên trong bước: "tiền tố=model".
+# Bước không khớp quy tắc nào dùng MODELS[1]. Ví dụ:
+# MEDIUM_RULES=(
+#   "client/=opencode-go/glm-5.3"
+#   "server/=opencode-go/deepseek-v4.1-flash"
+# )
+MEDIUM_RULES=()
+
 # Model cho bước Verify trên trình duyệt (cần đọc được ảnh)
 DEFAULT_VERIFY_MODEL="opencode-go/gemini-4-argon"
 
@@ -19,6 +27,11 @@ DEFAULT_CHECK_HINT="npm run typecheck và các Playwright spec liên quan (nếu
 
 # Gợi ý thêm cho Verify, ví dụ: "Game 2 người chơi: luôn mở 2 session và cho cả 2 vào cùng phòng."
 DEFAULT_VERIFY_HINT=""
+
+# Ai làm bước Verify trên trình duyệt:
+#   opencode = OpenCode tự chạy ngay sau khi code xong (tốn quota OpenCode)
+#   claude   = script dừng sau khi code xong; bạn gõ "verify" trong Claude (tốn quota Claude, Claude review luôn)
+DEFAULT_VERIFY_AGENT="opencode"
 
 # Gom tối đa bao nhiêu bước cùng nhãn vào một lần chạy OpenCode
 BATCH_MAX="${BATCH_MAX:-4}"

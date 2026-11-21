@@ -8,6 +8,8 @@
 #   REUSE_SESSION=0 scripts/run-task.sh ... # mỗi nhóm bước một phiên mới (không --continue)
 #   BATCH_MAX=1 scripts/run-task.sh ...     # mỗi lần chạy chỉ 1 bước (như bản cũ)
 #   ACTIONS=0 scripts/run-task.sh ...       # ẩn các dòng hành động, chỉ hiện commit
+#   VERIFY_MODE=full scripts/run-task.sh ...# none | light (mặc định) | full — ghi đè "Verify mode:" trong file task
+#   VERIFY_AGENT=claude scripts/run-task.sh ...# để Claude làm Verify (tiết kiệm quota OpenCode)
 #
 # Màn hình chỉ hiện tóm tắt. Chi tiết đầy đủ nằm trong .agents/run.log
 #   (xem trực tiếp ở ô khác: tail -f .agents/run.log)
@@ -25,10 +27,14 @@ MODELS=(
   "opencode-go/glm-5.3"               # 1: vừa
   "opencode-go/kimi-k3.1-pro"         # 2: khó
 )
+# Mức [vừa] chọn model theo thư mục của file đầu tiên trong bước ("tiền tố=model").
+# Không khớp quy tắc nào thì dùng MODELS[1]. Để trống = luôn dùng MODELS[1].
+MEDIUM_RULES=()
 DEFAULT_VERIFY_MODEL="opencode-go/gemini-4-argon"
 DEFAULT_VERIFY_URL="http://localhost:5173"
 DEFAULT_CHECK_HINT="lệnh typecheck/lint và các test liên quan theo mục Commands trong AGENTS.md"
 DEFAULT_VERIFY_HINT=""
+DEFAULT_VERIFY_AGENT="opencode"   # opencode = OpenCode tự Verify · claude = để Claude Verify khi bạn gõ "verify"
 
 CONFIG=".agents/config.sh"
 # shellcheck source=/dev/null
@@ -51,6 +57,7 @@ VERIFY_URL="${VERIFY_URL:-$DEFAULT_VERIFY_URL}"
 CHECK_HINT="${CHECK_HINT:-$DEFAULT_CHECK_HINT}"
 VERIFY_HINT="${VERIFY_HINT:-$DEFAULT_VERIFY_HINT}"
 VERIFY="${VERIFY:-1}"                  # 0 = bỏ qua bước Verify trên trình duyệt
+VERIFY_AGENT="${VERIFY_AGENT:-$DEFAULT_VERIFY_AGENT}"
 
 # ---------- giao diện ----------
 if [[ -t 1 ]]; then
@@ -157,26 +164,38 @@ run_agent() {
 
 # ---------- Verify ----------
 verify() {
+  local mode="$1"
   echo ""
   hr
-  echo "${BOLD}🔍 Verify trên trình duyệt${RESET}  ${DIM}$VERIFY_MODEL${RESET}"
+  echo "${BOLD}🔍 Verify ${mode} trên trình duyệt${RESET}  ${DIM}$VERIFY_MODEL${RESET}"
   hr
 
-  local prompt="Đọc AGENTS.md và $TASK. Toàn bộ các bước code đã xong.
-Nhiệm vụ: kiểm tra tính năng vừa làm như một người dùng thật, bằng playwright-cli.
-1. Chạy toàn bộ e2e test trước (xem mục Commands trong AGENTS.md). Ghi kết quả từng test vào 'Test status'.
-2. Đảm bảo dev server đang chạy (xem AGENTS.md). Dùng playwright-cli mở app tại $VERIFY_URL.
-   Tính năng nhiều người dùng: mở nhiều session riêng.
-3. Kiểm tra từng ý trong 'Mục tiêu' và 'Test cases': thao tác, chụp màn hình.
-   Nếu AGENTS.md mô tả test hook để set state, dùng nó thay vì tự thao tác dài dòng.
-$VERIFY_HINT
-4. Ghi vào file task mục '## Verify' gồm: từng ý đã kiểm tra, PASS/FAIL,
-   đường dẫn screenshot, lỗi phát hiện.
-5. Với MỖI kịch bản đã kiểm tra (kể cả PASS): viết thành test trong tests/ để lần sau chạy tự động,
-   và thêm nó vào mục 'Test cases' nếu chưa có. Kịch bản FAIL thì test được phép fail.
-   KHÔNG sửa code của app.
+  local prompt common
+  common="Đọc AGENTS.md và $TASK. Toàn bộ các bước code đã xong. KHÔNG sửa code của app.
+Dev server: xem AGENTS.md. App tại $VERIFY_URL. Nếu AGENTS.md mô tả test hook để set state, dùng nó.
+$VERIFY_HINT"
+
+  if [[ "$mode" == "full" ]]; then
+    prompt="$common
+Nhiệm vụ (Verify FULL): kiểm tra tính năng như một người dùng thật, bằng playwright-cli.
+1. Chạy toàn bộ e2e test một lần. Ghi kết quả từng test vào 'Test status'.
+2. Mở app bằng playwright-cli (tính năng nhiều người dùng: nhiều session).
+3. Kiểm tra từng ý trong 'Mục tiêu' và 'Test cases', thêm tối đa 2 kịch bản biên quan trọng nhất. Chụp màn hình.
+4. Ghi mục '## Verify': từng ý, PASS/FAIL, đường dẫn screenshot, lỗi phát hiện.
+5. Viết test cho các kịch bản CHƯA có spec (kể cả PASS), tối đa 3 test mới. Kịch bản FAIL thì test được phép fail.
 6. Dòng cuối mục Verify phải là đúng 'VERIFY: PASS' hoặc 'VERIFY: FAIL'.
 7. Dọn dẹp: đóng browser, dừng dev server nếu bạn đã bật. Commit file task và test mới."
+  else
+    prompt="$common
+Nhiệm vụ (Verify LIGHT, làm nhanh, không suy luận thêm kịch bản):
+1. Chạy toàn bộ e2e test một lần. Ghi kết quả từng test vào 'Test status'.
+2. Chỉ mở playwright-cli cho các ý trong 'Test cases' mà spec KHÔNG kiểm tra được (thường là hình ảnh/bố cục):
+   mỗi ý 1 screenshot. Ý nào spec đã PASS thì coi là PASS, không mở trình duyệt.
+3. KHÔNG nghĩ thêm kịch bản mới. Chỉ viết test mới nếu phát hiện lỗi (tối đa 1 test tái hiện lỗi đó).
+4. Ghi mục '## Verify' ngắn gọn: từng ý, PASS/FAIL, screenshot (nếu có).
+5. Dòng cuối mục Verify phải là đúng 'VERIFY: PASS' hoặc 'VERIFY: FAIL'.
+6. Dọn dẹp: đóng browser, dừng dev server nếu bạn đã bật. Commit file task (và test mới nếu có)."
+  fi
 
   run_agent "$VERIFY_MODEL" "$prompt" "verify"
   info "  ⏱  $(fmt_time "${LAST_DURATION:-0}")"
@@ -241,20 +260,49 @@ level_of() {
   esac
 }
 
+# Đường dẫn file đầu tiên nhắc tới trong dòng bước (vd client/src/ui/OrdersPanel.ts)
+first_path_of() {
+  grep -oE '[A-Za-z0-9_.@-]+/[A-Za-z0-9_./@-]+' <<< "$1" | head -n1 || true
+}
+
+# Model cho một bước ở một mức. Mức [vừa] có thể chọn theo thư mục qua MEDIUM_RULES.
+model_for() {
+  local line="$1" lvl="$2" path rule prefix
+  if [[ "$lvl" == "1" && ${#MEDIUM_RULES[@]} -gt 0 ]]; then
+    path=$(first_path_of "$line")
+    for rule in "${MEDIUM_RULES[@]}"; do
+      prefix="${rule%%=*}"
+      if [[ -n "$path" && "$path" == "$prefix"* ]]; then
+        echo "${rule#*=}"
+        return
+      fi
+    done
+  fi
+  echo "${MODELS[$lvl]}"
+}
+
 runs=0
 failed_step=""     # bước vừa chạy mà chưa xong → lần sau leo thang
 failed_level=0
+failed_model=""
 
 while (( runs < MAX_RUNS )); do
   unchecked=$(grep -E '^- \[ \] [0-9]+\.' "$TASK" || true)
   if [[ -z "$unchecked" ]]; then
     echo ""
     ok "✅ Đã xong mọi bước code."
-    if [[ "$VERIFY" != "1" ]]; then
-      ok "   (VERIFY=0: bỏ qua Verify) Tiếp theo: mở Claude → gõ review."
+    # Mức Verify: biến môi trường VERIFY_MODE > dòng "Verify mode: ..." trong file task > light
+    mode="${VERIFY_MODE:-$(grep -m1 -oE 'Verify mode: *(none|light|full)' "$TASK" | sed -E 's/.*: *//' || true)}"
+    mode="${mode:-light}"
+    if [[ "$VERIFY" != "1" || "$mode" == "none" ]]; then
+      ok "   (Verify mode: none) Tiếp theo: mở Claude → gõ review."
       exit 0
     fi
-    set +e; verify; rc=$?; set -e
+    if [[ "$VERIFY_AGENT" == "claude" ]]; then
+      ok "   Verify $mode giao cho Claude. Tiếp theo: mở Claude → /clear → gõ verify (Claude verify + review luôn)."
+      exit 0
+    fi
+    set +e; verify "$mode"; rc=$?; set -e
     exit $rc
   fi
 
@@ -267,6 +315,10 @@ while (( runs < MAX_RUNS )); do
   n=0
   if [[ "$first_step" == "$failed_step" ]]; then
     level=$((failed_level + 1))
+    # Bỏ qua mức có cùng model với lần vừa thất bại (chạy lại y hệt là phí)
+    while (( level <= 2 )) && [[ "$(model_for "$first_line" "$level")" == "$failed_model" ]]; do
+      level=$((level + 1))
+    done
     if (( level > 2 )); then
       echo ""
       fail "⛔ Bước $first_step chưa xong sau khi đã thử tới model mạnh nhất."
@@ -283,16 +335,18 @@ while (( runs < MAX_RUNS )); do
     n=1
   else
     level=$(level_of "$first_line")
+    batch_model=$(model_for "$first_line" "$level")
     while IFS= read -r l; do
       if (( n >= BATCH_MAX )); then break; fi
       if [[ "$(level_of "$l")" != "$level" ]]; then break; fi
+      if [[ "$(model_for "$l" "$level")" != "$batch_model" ]]; then break; fi
       batch_steps[n]=$(sed -E 's/^- \[ \] ([0-9]+)\..*/\1/' <<< "$l")
       batch_lines[n]="$l"
       n=$((n + 1))
     done <<< "$unchecked"
   fi
 
-  model="${MODELS[$level]}"
+  model=$(model_for "$first_line" "$level")
   runs=$((runs + 1))
   steps_csv=$(IFS=,; echo "${batch_steps[*]}" | sed 's/,/, /g')
   if (( n == 1 )); then
@@ -309,7 +363,9 @@ while (( runs < MAX_RUNS )); do
   done
 
   prompt="Đọc AGENTS.md và $TASK. Làm LẦN LƯỢT các bước $steps_csv, không làm bước nào khác.
-Sau MỖI bước: chạy $CHECK_HINT;
+Sau MỖI bước: chạy $CHECK_HINT.
+Về test: nếu bước có ghi lệnh test cụ thể thì CHỈ chạy đúng lệnh đó (không chạy cả bộ test);
+KHÔNG tự nghĩ thêm hay viết thêm test ngoài những gì plan yêu cầu. Sau đó
 commit với message rõ ràng; tick checkbox của bước đó; cập nhật 'Trạng thái hiện tại' và 'Test status'.
 Nếu một bước sau 2 lần sửa vẫn fail: KHÔNG tick checkbox của bước đó, ghi nguyên nhân và cách đã thử vào
 'Đã thử mà không được', commit file task, rồi DỪNG (không làm các bước sau)."
@@ -329,6 +385,7 @@ Nếu một bước sau 2 lần sửa vẫn fail: KHÔNG tick checkbox của bư
       warn "  ✗ Bước $s chưa xong"
       failed_step="$s"
       failed_level=$level
+      failed_model="$model"
     else
       echo "  ${DIM}– Bước $s chưa làm (dừng ở bước $failed_step)${RESET}"
     fi
