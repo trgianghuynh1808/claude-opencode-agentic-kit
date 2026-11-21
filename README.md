@@ -298,6 +298,7 @@ Environment variables to override a single run:
 | `ACTION_REGEX=...` | | Pattern for action lines, if OpenCode prints them in another format |
 | `REUSE_SESSION=0` | 1 | A fresh OpenCode session for every step group |
 | `BATCH_MAX=1` | 4 | Exactly one step per run |
+| `AUTOPILOT=1` | 0 | Only changes the final message: "Claude will verify on its own" instead of the manual "open Claude → /clear → type verify" hint. `watch-tasks.sh` sets it automatically. |
 | `MAX_RUNS=30` | 20 | Raise the limit for big tasks |
 | `VERIFY=0` | 1 | Skip Verify |
 | `VERIFY_MODE=full` | from task file, else `light` | Force Verify depth: `none` / `light` / `full` |
