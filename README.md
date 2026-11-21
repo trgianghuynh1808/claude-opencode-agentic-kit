@@ -38,22 +38,49 @@ The goal: **make your Claude quota last several times longer**, while Claude sti
 
 ```mermaid
 flowchart TD
-    U([You: describe a task]) --> P[Claude writes a plan<br/>plan mode]
-    P --> A{You approve?}
+    subgraph YOU["You"]
+        U([Describe a task])
+        A{Approve the plan?}
+        X(["🔔 Needs you"])
+    end
+
+    subgraph CLAUDE["Claude Code — plans, verifies, reviews, ships"]
+        P[Plan in plan mode]
+        H["Branch task/slug + task file + commit<br/>scripts/handoff.sh"]
+        WT["Wait: scripts/wait-task.sh"]
+        V["Verify in the browser<br/>depth = Verify mode"]
+        RV[Review the diff]
+        D{"VERIFY: PASS, checks pass,<br/>no blocking issue?"}
+        S["Ship: squash into 1 commit → push → 🔔"]
+        FC{"Fewer than 2<br/>fix cycles so far?"}
+        F["Fix cycle: append Fix steps<br/>commit plan(fix-n) → handoff.sh"]
+    end
+
+    subgraph OPENCODE["OpenCode — implements"]
+        W["watch-tasks.sh → run-task.sh"]
+        R["Run a group of steps<br/>model chosen by label / folder"]
+        T{Step done?}
+        E{Stronger model left?}
+    end
+
+    U --> P --> A
     A -- revise --> P
-    A -- approve --> H[Claude: branch task/slug, task file, commit<br/>scripts/handoff.sh]
-    H --> W[watch-tasks.sh → run-task.sh<br/>OpenCode codes step groups, model by label/folder]
-    W --> T{Result}
-    T -- step fails --> E[Escalate to a stronger model] --> W
-    T -- stuck / done --> C[Claude: scripts/wait-task.sh returns]
-    C -- done --> V[Claude verifies in the browser]
-    V --> RV[Claude reviews the diff]
-    RV -- pass --> S[Ship: squash 1 commit → push → 🔔]
-    RV -- blocking issues --> F[Fix cycle: Claude appends Fix steps<br/>commit plan fix-n, hand off again]
-    C -- stuck --> F
-    F --> W
-    F -- after 2 fix cycles --> X[🔔 Stop and ask you]
+    A -- approve --> H --> W --> R --> T
+    T -- "yes, more steps" --> R
+    T -- no --> E
+    E -- yes --> R
+    E -- "no: stuck" --> WT
+    T -- "all steps done" --> WT
+    WT -- "still running" --> WT
+    WT -- done --> V --> RV --> D
+    D -- yes --> S
+    D -- no --> FC
+    WT -- stuck --> FC
+    FC -- yes --> F --> W
+    FC -- no --> X
 ```
+
+Say **"manual"** when requesting a task and Claude stops right after the hand-off instead (you then type `verify`, `review`, `ship` yourself).
 
 The two agents never talk to each other directly. **All context lives in the repo:**
 
@@ -209,7 +236,7 @@ The script picks the model by reading `[dễ]`/`[vừa]`/`[khó]` in the plan li
 
 ## Browser verification
 
-Once every step is checked, an agent (`VERIFY_MODEL`, must accept images) checks the feature with `playwright-cli`.
+Once every step is checked, the feature is checked in a real browser with `playwright-cli` — by Claude in Autopilot (default), or by OpenCode with `VERIFY_MODEL` (must accept images) if `DEFAULT_VERIFY_AGENT="opencode"`.
 How deep it goes is set by the `Verify mode:` line at the top of the task file (Claude picks it when planning):
 
 | Mode | When | What the agent does |
@@ -222,7 +249,7 @@ Every mode records results in `## Verify` and ends with `VERIFY: PASS` or `VERIF
 
 Keeping tests lean is what keeps runs fast. `CLAUDE.md` tells Claude to plan **at most 3 test cases per task**, to name the **exact test command** in each step (e.g. `npx playwright test tests/orders.spec.ts -g "T1"`), and the executor is told to run only that command and not to invent extra tests.
 
-**Who verifies.** By default OpenCode does it right after the code steps. If your OpenCode quota runs short while Claude has room to spare, set `DEFAULT_VERIFY_AGENT="claude"`: the script stops after the code steps, you type `verify` in Claude, and Claude runs the same Verify and then the review in one go.
+**Who verifies.** By default (`DEFAULT_VERIFY_AGENT="claude"`) the script stops after the code steps and Claude verifies and reviews in one go — browser screenshots are expensive, and this keeps them off your OpenCode quota. Set `"opencode"` to have OpenCode verify right after coding (Claude then skips its own Verify when it sees `VERIFY: PASS`).
 
 Override the mode for one run: `VERIFY_MODE=full scripts/run-task.sh ...` · Skip Verify for one run: `VERIFY=0 scripts/run-task.sh ...`
 
@@ -254,11 +281,11 @@ Claude's full instructions are in [`template/CLAUDE.md`](template/CLAUDE.md). Ex
 |---|---|
 | `MODELS=(easy medium hard)` | Model per label, as `provider/model` (see `opencode models`) |
 | `MEDIUM_RULES=("prefix=model" ...)` | Optional: pick the `[vừa]` model by the folder of the first file a step names (e.g. `client/` → stronger model, `server/` → cheaper model). Unmatched steps use `MODELS[1]`. |
-| `DEFAULT_VERIFY_MODEL` | Model for Verify (must accept images) |
+| `DEFAULT_VERIFY_MODEL` | Model for Verify when `DEFAULT_VERIFY_AGENT="opencode"` (must accept images) |
 | `DEFAULT_VERIFY_URL` | App URL in dev, may include `?test=1` |
 | `DEFAULT_CHECK_HINT` | What the agent runs after each step, written as an instruction |
 | `DEFAULT_VERIFY_HINT` | Extra guidance for Verify (e.g. "always open 2 sessions") |
-| `DEFAULT_VERIFY_AGENT` | `opencode` (OpenCode verifies right away) or `claude` (you type `verify` in Claude, which also reviews) |
+| `DEFAULT_VERIFY_AGENT` | `claude` (default: Claude verifies and reviews in Autopilot) or `opencode` (OpenCode verifies right after coding) |
 | `BATCH_MAX` | Max same-label steps per run |
 | `MAX_RUNS` | Max OpenCode invocations per task |
 
@@ -274,7 +301,7 @@ Environment variables to override a single run:
 | `MAX_RUNS=30` | 20 | Raise the limit for big tasks |
 | `VERIFY=0` | 1 | Skip Verify |
 | `VERIFY_MODE=full` | from task file, else `light` | Force Verify depth: `none` / `light` / `full` |
-| `VERIFY_AGENT=claude` | `opencode` | Stop after the code steps and let Claude verify (type `verify`) |
+| `VERIFY_AGENT=opencode` | `claude` | Let OpenCode verify right after coding for this run |
 | `VERIFY_MODEL`, `VERIFY_URL` | | Override the config values |
 
 Example OpenCode subagents (optional, the scripts don't need them): [`examples/opencode-agents/`](examples/opencode-agents) — copy into `.opencode/agents/`.
