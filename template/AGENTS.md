@@ -56,3 +56,13 @@ TODO: language/style rules taken from the existing code.
 - Only modify files named in the task's plan. If another file must change, record the reason in the task file.
 - Commit after each step with a clear message.
 - Before finishing: tick the plan checkboxes and update "Trạng thái hiện tại" and "Test status" in the task file.
+
+## Documentation Rules
+
+After finishing anything new (feature, behavior change, API or config change, env var, script, folder or dependency change), double-check the project docs and update whatever is now out of date, in the same task:
+- `README.md`: features, architecture/diagrams, API, environment variables, scripts, project structure, tech stack. Compare it against the code, not against memory.
+- Any other spec/design doc that describes the changed behavior.
+- `AGENTS.md`: Architecture, Codebase Map, Commands, conventions.
+- Remove statements that are no longer true instead of adding a note next to them.
+- If nothing needs changing, say so in the task file's "Trạng thái hiện tại" (e.g. "Docs checked: no change needed").
+

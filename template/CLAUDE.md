@@ -38,7 +38,7 @@ After every hand-off, run the loop below on your own. Run long commands with the
    - `full`: also try up to 2 important edge scenarios and add specs for unchecked ones (max 3 new tests).
    - Use the test hook described in AGENTS.md to reach state; open several sessions for multi-user features.
    - Write the "## Verify" section (each item, PASS/FAIL, screenshot paths), ending with exactly `VERIFY: PASS` or `VERIFY: FAIL`. Do not change app code here. Close the browser and commit the task file and any new specs.
-3. **Review:** read the task file and `git diff main...HEAD`. Classify findings as **blocking** (bugs, behavior that differs from the goals, failing or missing test cases, security/data issues) or **non-blocking** (style, naming, small cleanups).
+3. **Review:** read the task file and `git diff main...HEAD`. Classify findings as **blocking** (bugs, behavior that differs from the goals, failing or missing test cases, security/data issues, docs left out of date per "Documentation Rules" in AGENTS.md) or **non-blocking** (style, naming, small cleanups).
 4. **Decide:**
    - `VERIFY: PASS` (or Verify mode `none`), the project's checks pass, and no blocking findings → **Ship** (below), then notify: `scripts/notify.sh "Shipped ✅" "<slug> → <commit hash>"`, report a short summary to the user, and stop.
    - Otherwise → step 5.
@@ -63,9 +63,10 @@ When the user asks for a review: read the task file (including "Test status" and
 When shipping (from Autopilot, or when the user says "ship"):
 
 1. Make sure the working tree is clean and the project's checks (see Commands in AGENTS.md) pass.
+   Double-check `README.md` (and any other doc the change touches) against the code, per "Documentation Rules" in AGENTS.md. If it is out of date, update it (in the same task, or as a separate `docs:` commit before shipping) — do not ship with stale docs.
 2. Squash the branch into one commit on main:
    `git checkout main && git pull --ff-only && git merge --squash task/<slug>`
 3. Commit with one Conventional Commit message summarizing the whole task (e.g. `feat(orders): show container line last in recipe`), with a short body listing the main changes and the test cases added. Do not mention the individual step commits or fix cycles.
    - If the branch also touches files outside the task plan (e.g. `scripts/`, tooling, `CLAUDE.md`), unstage them (`git reset -q <paths>`) before this commit and commit them separately afterwards (`chore: ...`), so the feature commit stays clean.
-4. `git push origin main`, then delete the task branch: `git branch -D task/<slug>`.
+4. `git push origin main` (use your remote's name if it is not `origin`), then delete the task branch: `git branch -D task/<slug>`.
 5. Report the final commit hash. If the pull or push fails (e.g. remote has new commits, conflicts), stop and tell the user instead of forcing.

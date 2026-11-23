@@ -109,8 +109,8 @@ The two agents never talk to each other directly. **All context lives in the rep
 ## Installation
 
 ```bash
-git clone https://github.com/<you>/claude-opencode-kit.git
-cd claude-opencode-kit
+git clone https://github.com/<you>/claude-opencode-agentic-kit.git
+cd claude-opencode-agentic-kit
 ./install.sh /path/to/your-project
 ```
 
@@ -119,6 +119,9 @@ The installer:
 - **always updates** everything in `scripts/` (re-run it to upgrade the kit);
 - **creates only if missing** `CLAUDE.md`, `AGENTS.md`, `.agents/config.sh`, `.agents/tasks/_TEMPLATE.md` (use `--force` to overwrite);
 - adds `.agents/queue/`, `.agents/status/`, `.agents/run.log`, `test-results/`, `playwright-report/` to `.gitignore`.
+
+> Upgrading an existing project? The installer never overwrites `CLAUDE.md` / `AGENTS.md`, so newer template sections
+> (e.g. **Documentation Rules**, which makes agents re-check the README and docs after every change) must be copied over by hand.
 
 > Your project already has a `CLAUDE.md`? The installer leaves it alone. Copy the **Handoff to OpenCode**
 > section from `template/CLAUDE.md` to the end of your file, and add `@AGENTS.md` at the top.
@@ -346,6 +349,7 @@ Example OpenCode subagents (optional, the scripts don't need them): [`examples/o
 | iTerm dims the inactive pane | Settings → Appearance → Dimming → uncheck "Dim inactive split panes". |
 | Running two tasks in parallel | One `git worktree` per task, one watcher per worktree. |
 | Claude says the task is still `queued` / watcher not running | Start `scripts/watch-tasks.sh` in the left pane; Claude retries the wait. |
+| `no such column: project_id` from `opencode` as soon as a task starts (seen with OpenCode 1.19.x) | It can happen in a repo that has a remote named `origin`. Rename the remote (e.g. `git remote rename origin github`), then use it in the Ship step (`git push github main`) — `template/CLAUDE.md` says `origin`, adjust it in your project's `CLAUDE.md`. |
 | Claude keeps asking for permission during Autopilot | Switch Claude Code to auto-accept / auto mode (Shift+Tab) after approving the plan, or allow `scripts/*`, `git` and `npx playwright` in its permission settings. |
 
 **Privacy:** a provider's free or "contributor" models may store your data — don't use them with company code. Check your provider's privacy settings.
@@ -355,7 +359,7 @@ Example OpenCode subagents (optional, the scripts don't need them): [`examples/o
 ## Repository layout
 
 ```
-claude-opencode-kit/
+claude-opencode-agentic-kit/
 ├── install.sh                      # install/upgrade the kit in a project
 ├── scripts/
 │   ├── run-task.sh                 # run a task's steps + Verify
