@@ -1,4 +1,4 @@
-# claude-opencode-kit
+# claude-opencode-agentic-kit
 
 > **Claude plans, verifies, reviews and ships. OpenCode codes. You approve the plan — the rest runs on autopilot.**
 
