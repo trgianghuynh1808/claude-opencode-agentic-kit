@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cài claude-opencode-kit vào một project có sẵn.
+# Cài claude-opencode-agentic-kit vào một project có sẵn.
 #
 #   ./install.sh /path/to/your-project            # cài lần đầu
 #   ./install.sh /path/to/your-project --force    # ghi đè cả file cấu hình/template đã có
@@ -42,7 +42,7 @@ copy_once() {     # file người dùng sẽ sửa: không ghi đè nếu đã c
   fi
 }
 
-echo "Cài claude-opencode-kit vào $TARGET"
+echo "Cài claude-opencode-agentic-kit vào $TARGET"
 echo ""
 echo "Scripts:"
 copy_always scripts/run-task.sh    scripts/run-task.sh
@@ -90,7 +90,7 @@ Xong. Bước tiếp theo (chi tiết trong README):
   1. Sửa .agents/config.sh: model, URL dev, lệnh kiểm tra.
   2. Điền AGENTS.md bằng prompts/generate-agents-md.md, đọc lại rồi commit.
   3. Cài Playwright Test nếu chưa có (xem examples/playwright.config.ts).
-  4. Commit:  git add -A && git commit -m "chore: add claude-opencode-kit"
+  4. Commit:  git add -A && git commit -m "chore: add claude-opencode-agentic-kit"
   5. Ô trái:  scripts/watch-tasks.sh      Ô phải:  claude (plan mode)
      Duyệt plan xong, Claude tự chạy tiếp: chờ OpenCode → verify → review → ship (Autopilot).
 EOF

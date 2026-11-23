@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Ví dụ Playwright config cho claude-opencode-kit.
+ * Ví dụ Playwright config cho claude-opencode-agentic-kit.
  * Những phần kit cần:
  *  - reporter 'json' ghi ra test-results/results.json (agent đọc khi test fail)
  *  - trace/screenshot khi fail

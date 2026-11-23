@@ -148,7 +148,7 @@ Then adjust `playwright.config.ts` following [`examples/playwright.config.ts`](e
 **5. Commit:**
 
 ```bash
-git add -A && git commit -m "chore: add claude-opencode-kit"
+git add -A && git commit -m "chore: add claude-opencode-agentic-kit"
 ```
 
 **6. Check that Claude reads AGENTS.md:** run `claude` and ask *"What is the codebase map of this project?"*.

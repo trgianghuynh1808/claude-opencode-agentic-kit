@@ -168,7 +168,7 @@ fence_for() {
 }
 
 {
-  echo "# kit-source — snapshot mã nguồn claude-opencode-kit"
+  echo "# kit-source — snapshot mã nguồn claude-opencode-agentic-kit"
   echo ""
   echo "_Tạo từ repo kit ngày $(date +%Y-%m-%d) (commit $COMMIT$DIRTY) bằng tools/sync-knowledge.sh. Đây là nguồn sự thật cho script và template; khi kit thay đổi, chạy lại script._"
   echo ""
