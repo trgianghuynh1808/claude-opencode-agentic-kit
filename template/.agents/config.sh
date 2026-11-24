@@ -17,6 +17,11 @@ MODELS=(
 # )
 MEDIUM_RULES=()
 
+# (Tùy chọn) Bước có file đầu tiên khớp tiền tố chạy trong phiên OpenCode MỚI (không --continue), để context không dài ra
+# theo các bước trước. Hợp với bước viết test: plan đã mô tả test từng bước + ngữ cảnh nên không cần lịch sử phiên.
+# FRESH_RULES=("tests/")
+FRESH_RULES=()
+
 # Model cho bước Verify trên trình duyệt (cần đọc được ảnh)
 DEFAULT_VERIFY_MODEL="opencode-go/gemini-4-argon"
 

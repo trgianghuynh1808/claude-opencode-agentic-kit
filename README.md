@@ -232,6 +232,7 @@ The script detects steps with the pattern `- [ ] N. [label] ...` — keep that e
 - **Session reuse:** from the second run on, the script uses `opencode run --continue`, so the next model still sees what the previous one read and did (`REUSE_SESSION=0` to disable).
 - **Escalation:** a step still unchecked after a run is retried on its own with the next model up (levels whose model is the same as the one that just failed are skipped). Stuck at `[khó]` → stop and hand over to Claude.
 - **Per-folder models:** with `MEDIUM_RULES`, `[vừa]` steps can use different models depending on the folder of the first file path in the step line, so start each step with its main file path. A `tests/` prefix lets the steps that write specs use their own model (the planning rules tell Claude to start such steps with the spec path and label them `[vừa]`).
+- **Fresh sessions:** with `FRESH_RULES` (e.g. `("tests/")`), steps whose first path matches run in a new session instead of `--continue`, so a long session's context doesn't slow every later turn. Use it for steps that don't need the earlier steps' history because the plan already carries the context.
 - **Quota guard:** at most `MAX_RUNS` OpenCode invocations per task.
 
 The script picks the model by reading `[dễ]`/`[vừa]`/`[khó]` in the plan line — the models themselves don't "know" about labels. Change models in `.agents/config.sh`.
@@ -285,6 +286,7 @@ Claude's full instructions are in [`template/CLAUDE.md`](template/CLAUDE.md). Ex
 |---|---|
 | `MODELS=(easy medium hard)` | Model per label, as `provider/model` (see `opencode models`) |
 | `MEDIUM_RULES=("prefix=model" ...)` | Optional: pick the `[vừa]` model by the folder of the first file a step names (e.g. `client/` → stronger model, `server/` → cheaper model). Unmatched steps use `MODELS[1]`. |
+| `FRESH_RULES=("prefix" ...)` | Optional: steps whose first path matches a prefix (e.g. `tests/`) start a fresh OpenCode session instead of `--continue`. |
 | `DEFAULT_VERIFY_MODEL` | Model for Verify when `DEFAULT_VERIFY_AGENT="opencode"` (must accept images) |
 | `DEFAULT_VERIFY_URL` | App URL in dev, may include `?test=1` |
 | `DEFAULT_CHECK_HINT` | What the agent runs after each step, written as an instruction |
