@@ -207,6 +207,7 @@ Template: [`template/.agents/tasks/_TEMPLATE.md`](template/.agents/tasks/_TEMPLA
 - [ ] 2. [vừa] tests/orders-panel.spec.ts: write T1–T2
 ## Test cases
 - [ ] T1. Container line is last — .part-into is the final step — tests/orders-panel.spec.ts   (max 3)
+      Setup: ... · Steps: 1. ... 2. ... · Assert: ...   ← spelled out step by step by Claude
 ## Trạng thái hiện tại             ← Current status
 ## Test status                    ← per test: PASS / FAIL / not written yet
 ## Verify                         ← filled by the Verify phase; last line VERIFY: PASS|FAIL
@@ -230,7 +231,7 @@ The script detects steps with the pattern `- [ ] N. [label] ...` — keep that e
 - **Batching:** consecutive steps with the same label run in **one** OpenCode session (up to `BATCH_MAX`), so the agent doesn't re-read the context for every step.
 - **Session reuse:** from the second run on, the script uses `opencode run --continue`, so the next model still sees what the previous one read and did (`REUSE_SESSION=0` to disable).
 - **Escalation:** a step still unchecked after a run is retried on its own with the next model up (levels whose model is the same as the one that just failed are skipped). Stuck at `[khó]` → stop and hand over to Claude.
-- **Per-folder models:** with `MEDIUM_RULES`, `[vừa]` steps can use different models depending on the folder of the first file path in the step line, so start each step with its main file path.
+- **Per-folder models:** with `MEDIUM_RULES`, `[vừa]` steps can use different models depending on the folder of the first file path in the step line, so start each step with its main file path. A `tests/` prefix lets the steps that write specs use their own model (the planning rules tell Claude to start such steps with the spec path and label them `[vừa]`).
 - **Quota guard:** at most `MAX_RUNS` OpenCode invocations per task.
 
 The script picks the model by reading `[dễ]`/`[vừa]`/`[khó]` in the plan line — the models themselves don't "know" about labels. Change models in `.agents/config.sh`.
@@ -344,6 +345,7 @@ Example OpenCode subagents (optional, the scripts don't need them): [`examples/o
 | Odd results when switching models mid-task | Try `REUSE_SESSION=0`. |
 | The script continues the wrong session | `--continue` resumes the most recent session in the project — don't run interactive `opencode` in the same repo while the script runs (use a git worktree). |
 | No `← Edit` / `$ ...` lines on screen | OpenCode prints actions in a different format. Check `grep -nE "Edit|Write|Bash" .agents/run.log`, then set `ACTION_REGEX`. |
+| Steps feel slow even though little is happening | Check `scripts/log-gaps.sh` first: if the gaps sit in the model turns (not in tests or type checks), it is per-turn model latency, which varies a lot with the time of day and with session length. The levers are fewer turns: a plan with precise context and step-by-step test descriptions (so the executor does not explore), and short sessions. |
 | Every step is slow in the test phase | Keep `npm run dev` running (`reuseExistingServer: true`). Confirm with `scripts/log-gaps.sh`. |
 | `claude: command not found` | Install the Claude Code CLI ([guide](https://code.claude.com/docs/en/setup)) and add `~/.local/bin` to `PATH`. |
 | iTerm dims the inactive pane | Settings → Appearance → Dimming → uncheck "Dim inactive split panes". |

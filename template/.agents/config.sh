@@ -13,6 +13,7 @@ MODELS=(
 # MEDIUM_RULES=(
 #   "client/=opencode-go/glm-5.3"
 #   "server/=opencode-go/deepseek-v4.1-flash"
+#   "tests/=opencode-go/deepseek-v4.1-flash"   # test-writing steps: try the cheap model, escalates on failure
 # )
 MEDIUM_RULES=()
 
