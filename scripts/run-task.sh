@@ -49,7 +49,10 @@ if [[ -f "$CONFIG" ]]; then source "$CONFIG"; fi
 # Cấu hình phòng (.agents/room.env): port/URL riêng từng project, nhánh staging. Không có file thì bỏ qua.
 # shellcheck source=/dev/null
 [[ -f scripts/room-env.sh ]] && source scripts/room-env.sh
-[[ -n "${PLAYWRIGHT_BASE_URL:-}" ]] && DEFAULT_VERIFY_URL="$PLAYWRIGHT_BASE_URL"
+# Giữ nguyên path/query của DEFAULT_VERIFY_URL (vd ?test=1), chỉ thay port theo phòng
+if [[ -n "${APP_PORT:-}" ]]; then
+  DEFAULT_VERIFY_URL="$(sed -E "s#(://[^/:]+)(:[0-9]+)?#\1:$APP_PORT#" <<<"$DEFAULT_VERIFY_URL")"
+fi
 
 TASK="${1:?Usage: scripts/run-task.sh .agents/tasks/<file>.md}"
 MAX_RUNS="${MAX_RUNS:-20}"
