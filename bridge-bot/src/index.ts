@@ -173,9 +173,24 @@ async function health(room: Room): Promise<string> {
   }
 
   const mgr = await pidAlive(path.join(ag, "manager.lock"));
-  mgr ? ok(agents, `Manager daemon (pid ${mgr})`) : bad(agents, "Manager daemon đang ngủ đông", "Manager daemon (chạy `scripts/agent-room.sh start`)");
+  const mgrModel = env.MODEL_MANAGER || "mặc định";
+  mgr ? ok(agents, `Manager · daemon bash + Python, chỉ gọi Claude \`${mgrModel}\` khi cần (pid ${mgr})`)
+      : bad(agents, "Manager · daemon đang ngủ đông", "Manager daemon (chạy `scripts/agent-room.sh start`)");
+  // The Tech Lead has no process of its own: the Manager daemon runs `claude -p` for each turn, so its health is the daemon's plus the CLI's.
+  let last = "";
+  try {
+    const rows = (await fs.readFile(path.join(ag, "logs", "usage.log"), "utf8")).trim().split("\n").reverse();
+    for (const r of rows) {
+      const j = JSON.parse(r) as { role?: string; label?: string; ts?: string };
+      if (j.role === "techlead") { last = ` · lần gọi gần nhất: ${j.label} (${(j.ts ?? "").slice(11, 16)})`; break; }
+    }
+  } catch { /* no usage log yet */ }
+  const tlModel = env.MODEL_TECHLEAD || "mặc định";
+  mgr ? ok(agents, `Tech Lead · Claude Code \`claude -p\` (\`${tlModel}\`), Manager gọi theo từng lượt${last}`)
+      : warn(agents, "Tech Lead · Claude Code `claude -p`, chưa được gọi vì Manager daemon đang tắt");
   const wat = await pidAlive(path.join(ag, "watcher.pid"));
-  wat ? ok(agents, `Senior Dev watcher / OpenCode (pid ${wat})`) : bad(agents, "Senior Dev watcher đang ngủ đông", "watcher OpenCode (chạy `scripts/agent-room.sh start`)");
+  wat ? ok(agents, `Senior Dev · OpenCode, watcher \`watch-tasks.sh\` (pid ${wat})`)
+      : bad(agents, "Senior Dev · OpenCode, watcher đang ngủ đông", "watcher OpenCode (chạy `scripts/agent-room.sh start`)");
 
   const cl = await run("claude", ["--version"]);
   cl.ok ? ok(tools, `claude ${cl.out}`) : bad(tools, "Không gọi được `claude` CLI", "claude CLI");
@@ -200,7 +215,7 @@ async function health(room: Room): Promise<string> {
     "", "**Hạ tầng**", ...infra,
     "", "**Các agent**", ...agents,
     "", "**Công cụ & dự án**", ...tools,
-    "", `Chế độ tự động: **${env.AUTO_MODE === "true" ? "BẬT" : "TẮT"}** · nhánh nền \`${env.STAGING_BRANCH ?? "staging"}\``,
+    "", `${env.AUTO_MODE === "true" ? "Đang chạy" : "Tạm dừng"} · chế độ tự động: **${env.PLAN_APPROVAL === "ask" ? "TẮT (bạn duyệt plan)" : "BẬT (tự duyệt plan)"}** · nhánh nền \`${env.STAGING_BRANCH ?? "staging"}\``,
     "", verdict,
   ].join("\n");
 }
