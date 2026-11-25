@@ -61,13 +61,13 @@ open(p,'w').write(s)
 PY
 plan task-01-t1 full ""                        # Verify not reported yet
 OPS progress task-01-t1 >/dev/null            # first tick: state file created (t0)
-sleep 1; printf x > .agents/screenshots/fresh-verify.png   # picture made while verifying
+sleep 1; printf x > .agents/screenshots/task-01-verify.png   # picture made while verifying
 plan task-01-t1 full "VERIFY: PASS"           # the Tech Lead writes the result
 OPS progress task-01-t1 >/dev/null            # Verify PASS reported -> pictures recorded for the task
 sed -i.bak 's/- \[ \] `T01` \[in_progress\]/- [x] `T01` [done]/' .agents/board.md; rm -f .agents/board.md.bak
 find .agents/outbox -maxdepth 1 -name '*.json' -delete
 OPS finalize >/dev/null
 allimgs="$(for f in $(msgs); do field "$f" images; done)"
-check "a picture taken during Verify is attached to its task"       'grep -q "fresh-verify.png" <<<"$allimgs"'
+check "a picture taken during Verify is attached to its task"       'grep -q "task-01-verify.png" <<<"$allimgs"'
 
 [[ $fail == 0 ]] && echo "OK" || { echo "FAILED"; exit 1; }

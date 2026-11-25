@@ -43,7 +43,7 @@ Telegram Topic #b ─┼─► bridge-bot ◄─ files ─►┤
    The plan check does not compare the plan with the task title (that needs judgement); keep tasks small and check the plan in the log if a task is risky.
 
 3. All tasks done → phase `AWAITING_SHIP_APPROVAL`; you get the evidence and then the approval card, all built by code:
-   - for each task that has verification pictures, a `📸 T05 · title` message from the Tech Lead with **that task's own pictures only** (the ones captured while it was verified: recorded in its time window, or named `task-NN-*.png`); a task with no pictures sends none;
+   - for each task that has verification pictures, a `📸 T05 · title` message from the Tech Lead with **that task's own pictures only** (only files named `task-NN-*.png` or containing the task slug, whatever their timestamp); a task with no pictures sends none;
    - the approval card with the **Ship** button: tasks (each saying how many pictures are above, or that Verify was skipped / nothing was captured), and the commits not yet on `main`. Pictures from earlier work or other tasks are never attached.
 4. `/ship` merges `staging` into `main` and pushes. Nothing reaches `main` without it. The merge commit names what is shipped (`Ship T10: <title>`, or `Ship 3 task: T08, T09, T10` with one line per task in the body).
 
