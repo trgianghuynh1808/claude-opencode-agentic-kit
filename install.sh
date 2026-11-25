@@ -4,7 +4,8 @@
 #   ./install.sh /path/to/your-project            # cài lần đầu
 #   ./install.sh /path/to/your-project --force    # ghi đè cả file cấu hình/template đã có
 #
-# Luôn cập nhật:  scripts/run-task.sh, scripts/watch-tasks.sh, scripts/log-gaps.sh
+# Luôn cập nhật:  scripts/*.sh (run-task, watch-tasks, log-gaps, handoff, wait-task, notify, room-env,
+#                 manager-loop, agent-room), .agents/MANAGER.md
 # Chỉ tạo nếu chưa có (trừ khi --force):
 #   CLAUDE.md, AGENTS.md, .agents/config.sh, .agents/tasks/_TEMPLATE.md
 
@@ -51,8 +52,13 @@ copy_always scripts/log-gaps.sh    scripts/log-gaps.sh
 copy_always scripts/handoff.sh     scripts/handoff.sh
 copy_always scripts/wait-task.sh   scripts/wait-task.sh
 copy_always scripts/notify.sh      scripts/notify.sh
-chmod +x "$TARGET"/scripts/run-task.sh "$TARGET"/scripts/watch-tasks.sh "$TARGET"/scripts/log-gaps.sh \
-         "$TARGET"/scripts/handoff.sh "$TARGET"/scripts/wait-task.sh "$TARGET"/scripts/notify.sh
+copy_always scripts/room-env.sh    scripts/room-env.sh
+copy_always scripts/manager-loop.sh scripts/manager-loop.sh
+copy_always scripts/agent-room.sh  scripts/agent-room.sh
+chmod +x "$TARGET"/scripts/*.sh
+copy_always prompts/MANAGER.md     .agents/MANAGER.md
+mkdir -p "$TARGET/.agents"
+echo "$KIT_DIR" > "$TARGET/.agents/kit-dir"   # agent-room.sh dùng để tìm bridge-bot/rooms.json
 
 echo ""
 echo "Cấu hình và template:"
@@ -65,7 +71,7 @@ mkdir -p "$TARGET/.agents/queue" "$TARGET/.agents/status"
 echo ""
 echo ".gitignore:"
 touch "$TARGET/.gitignore"
-for entry in ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
+for entry in ".agents/kit-dir" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
   if grep -qxF "$entry" "$TARGET/.gitignore" || grep -qxF "/$entry" "$TARGET/.gitignore"; then
     echo "  • $entry đã có"
   else
@@ -91,6 +97,8 @@ Xong. Bước tiếp theo (chi tiết trong README):
   2. Điền AGENTS.md bằng prompts/generate-agents-md.md, đọc lại rồi commit.
   3. Cài Playwright Test nếu chưa có (xem examples/playwright.config.ts).
   4. Commit:  git add -A && git commit -m "chore: add claude-opencode-agentic-kit"
-  5. Ô trái:  scripts/watch-tasks.sh      Ô phải:  claude (plan mode)
+  5. (Tùy chọn) Chế độ nhiều phòng qua Telegram: scripts/agent-room.sh init --topic <ID> --port <PORT>
+     rồi scripts/agent-room.sh start — xem README mục "Multi-room mode".
+  6. Ô trái:  scripts/watch-tasks.sh      Ô phải:  claude (plan mode)
      Duyệt plan xong, Claude tự chạy tiếp: chờ OpenCode → verify → review → ship (Autopilot).
 EOF

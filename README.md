@@ -30,6 +30,7 @@ The goal: **make your Claude quota last several times longer**, while Claude sti
 - [Configuration](#configuration)
 - [Logs and timing](#logs-and-timing)
 - [Troubleshooting](#troubleshooting)
+- [Multi-room mode (Telegram + Manager)](#multi-room-mode-telegram--manager)
 - [Repository layout](#repository-layout)
 
 ---
@@ -360,6 +361,79 @@ Example OpenCode subagents (optional, the scripts don't need them): [`examples/o
 
 ---
 
+## Multi-room mode (Telegram + Manager)
+
+Optional. Turns the 2-agent kit into three tiers that run unattended for several projects at once:
+
+| Tier | Agent | Job |
+|---|---|---|
+| Manager | Claude Code (headless, `scripts/manager-loop.sh`) | Splits your checklist into tasks on `.agents/board.md`, approves plans (Proxy Approval + guardrails), reports to you, asks for `/ship` |
+| Tech Lead | Claude Code (`CLAUDE.md`, section AUTO_MODE) | Plans, verifies, reviews, squash-merges into the `staging` branch |
+| Senior Dev | OpenCode | Implements, as before |
+
+Each project is a **room**: its own `.agents/room.env` (port, topic, branches), its own daemons, its own Telegram **Topic**.
+One **bridge bot** (`bridge-bot/`) connects a Telegram Supergroup (Topics enabled) to the rooms through files:
+Telegram message → `.agents/inbox/*.json`; Manager report/screenshots → `.agents/outbox/*.json` → Telegram.
+
+```
+Telegram Topic #a ─┐                          ┌─ Room A: manager-loop + watch-tasks (port 3001)
+Telegram Topic #b ─┼─► bridge-bot ◄─ files ─►┤
+                                              └─ Room B: manager-loop + watch-tasks (port 3002)
+```
+
+### Flow in AUTO_MODE
+
+1. `/auto <checklist>` → Manager writes tasks `[pending]` and creates `staging` from `main`.
+2. Per task, the daemon runs one step at a time (state is on `board.md`):
+   `pending` → Tech Lead writes the plan → `plan_ready` → Manager approves (or `BLOCKED` on a guardrail) and hands off →
+   `in_progress` → OpenCode codes, Tech Lead verifies/reviews and squash-merges into `staging` → `done`.
+3. All tasks done → phase `AWAITING_SHIP_APPROVAL`; you get a report with screenshots and a **Ship** button.
+4. `/ship` merges `staging` into `main` and pushes. Nothing reaches `main` without it.
+
+Safety: the daemon never loops on a stuck state (same task/state twice without progress turns AUTO_MODE off and tells you).
+Guardrails block plans that touch `.env`/secrets/CI config, destructive migrations, or drift from the task.
+The daemon calls `claude -p ... --dangerously-skip-permissions` (override with `CLAUDE_FLAGS`), so run rooms only on projects and machines you trust.
+
+### Setup
+
+```bash
+# 1. Telegram: create a bot with @BotFather, create a Supergroup, enable Topics, add the bot as admin,
+#    create one Topic per project. Get ADMIN_USER_ID (your user id), TELEGRAM_CHAT_ID (group id, -100...),
+#    and each Topic id (message_thread_id).
+
+# 2. Bridge bot (once, on the machine that hosts the rooms)
+cd bridge-bot && npm install && npm run build
+cp .env.example .env     # fill BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID
+node --env-file=.env dist/index.js          # or: pm2 start dist/index.js --name bridge --node-args="--env-file=.env"
+
+# 3. Each project (after ./install.sh <project>)
+cd /path/to/project
+scripts/agent-room.sh init --topic 12 --port 3001   # creates .agents/room.env + board.md, registers in bridge-bot/rooms.json
+git add -A && git commit -m "chore: add agent room"
+scripts/agent-room.sh start                         # manager-loop + watch-tasks via pm2 (or tmux)
+scripts/agent-room.sh status | stop
+```
+
+`install.sh` stores the kit path in `.agents/kit-dir` so `init` registers the room in `<kit>/bridge-bot/rooms.json`
+(override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot). `rooms.json` is hot-reloaded.
+
+### Telegram commands (inside a project's Topic; only `ADMIN_USER_ID` in `TELEGRAM_CHAT_ID` is obeyed)
+
+| Command | Effect |
+|---|---|
+| `/auto <checklist>` | One item per line; turns AUTO_MODE on |
+| `/status` | Board summary |
+| `/stop` | AUTO_MODE off, phase IDLE |
+| `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
+| `/ship` | Merge `staging` → `main` (only in `AWAITING_SHIP_APPROVAL`); also the **Ship** button |
+
+### `.agents/room.env`
+
+`PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`.
+`run-task.sh` reads it (via `scripts/room-env.sh`): Verify uses `PLAYWRIGHT_BASE_URL` instead of `DEFAULT_VERIFY_URL`, and task branches
+are cut from the staging branch. Without a `room.env` everything behaves as in the single-project mode above.
+Logs: `.agents/logs/manager.log` (daemon), `manager` and `techlead` logs per Claude call.
+
 ## Repository layout
 
 ```
@@ -370,6 +444,9 @@ claude-opencode-agentic-kit/
 │   ├── watch-tasks.sh              # wait for jobs from Claude via .agents/queue
 │   ├── log-gaps.sh                 # find slow spots in run.log
 │   ├── handoff.sh                  # Claude → OpenCode: queue a task
+│   ├── room-env.sh                 # load .agents/room.env (port, URL, branches)
+│   ├── manager-loop.sh             # multi-room: Manager daemon (inbox, board, Tech Lead dispatch)
+│   ├── agent-room.sh               # multi-room: init | start | stop | status for a project room
 │   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
 │   └── notify.sh                   # desktop notification
 ├── tools/                          # kit maintenance only (not installed into projects)
@@ -380,7 +457,9 @@ claude-opencode-agentic-kit/
 │   └── .agents/
 │       ├── config.sh
 │       └── tasks/_TEMPLATE.md
+├── bridge-bot/                     # Telegram Topics <-> .agents/inbox & outbox (Node/TypeScript, grammy)
 ├── prompts/                        # prompt templates (Vietnamese)
+│   ├── MANAGER.md                  # system prompt of the Manager (installed to .agents/MANAGER.md)
 │   ├── generate-agents-md.md
 │   ├── plan-task.md
 │   └── review-and-ship.md
