@@ -8,7 +8,6 @@ Used by scripts/manager-loop.sh so the Manager only needs Claude for judgement c
   room-ops.py say-file <role> <file>   same, text taken verbatim from a file
   room-ops.py inbox-args <file>     print the arguments of an inbox message (the /plan question)
   room-ops.py say-steps <role> <head> <step line>...   same, with the plan steps listed under <head>
-  room-ops.py step-start <total> <model> <step line>...   the Dev message when steps START (difficulty, model, description)
   room-ops.py status | stop | resume | usage [days]
   room-ops.py plan-path <slug>      path of the newest plan file for a task slug
   room-ops.py check-plan <slug>     prints OK | BLOCK: <why> | REVIEW: <why>
@@ -1111,28 +1110,22 @@ def progress_flag(slug, key):
         return False
 
 
-def step_start_text(total, model, lines):
-    """The message when OpenCode STARTS steps: which steps, difficulty, model and what each is about. The 'done' report repeats none of it."""
-    rows = [(int(m.group(2)), m.group(3) or "vừa", m.group(4)) for m in (STEP_RE.match(l) for l in lines) if m]
-    nums = ", ".join(str(n) for n, _, _ in rows)
-    out = [f"🔧 **Bắt đầu bước {nums}/{total}** nè!", "", "**Mô tả**"]
-    for n, label, txt in rows:
-        out.append(f"- **Bước {n}** · mức **{label}**" + (f" · model `{model.split('/')[-1]}`" if model else ""))
-        out.append(f"  {short(txt, 200)}")
-    return "\n".join(out)
-
-
 def plan_mtime(slug):
     p = plan_path(slug)
     return os.path.getmtime(p) if p and os.path.exists(p) else 0
 
 
 def step_report(slug, total, done_steps, commits, changed, linked, notes=None):
-    """ONE message for finished step(s): description with difficulty and model, commits (linked), test results."""
+    """ONE message per finished step(s): what the step was (with difficulty), commits (linked), test results. There is no separate start message."""
     base = repo_web_url()
     nums = ", ".join(str(x[0]) for x in done_steps)
     out = [f"✅ **Bước {nums}/{total}** xong rồi nè!" if len(done_steps) == 1 else
            f"✅ **Bước {nums}/{total}** xong hết rồi nè!" if done_steps else "📝 **Phần còn lại** của task"]
+    if done_steps:
+        out += ["", "**Mô tả**"]
+        for n, _, label, txt in done_steps:
+            out.append(f"- **Bước {n}** · mức **{label or 'vừa'}**")
+            out.append(f"  {short(txt, 200)}")
     out += ["", "**Commit**"]
     if commits:
         for h, sub in commits[:8]:
@@ -1537,8 +1530,6 @@ def main(argv):
         with open(a[1], encoding="utf8") as f:
             emit(a[0], f.read().strip())
         return 0
-    if c == "step-start":  # step-start <total> <model> <plan step line>...
-        emit("dev", step_start_text(a[0], a[1], a[2:]))
         return 0
     if c == "say-steps":  # say-steps <role> <head> <plan step line>...
         a[1] = a[1].replace("\\n", "\n")

@@ -48,7 +48,7 @@ check "not reported while the file is still being written (not settled)" '[[ -z 
 old; OPS progress $slug >/dev/null
 M="$(devmsgs)"
 check "exactly ONE message for the step"                 '[[ "$(grep -c "=====MSG=====" <<<"$M")" == 1 ]]'
-check "the done report has Commit and Test sections, and NO description" 'grep -q "\*\*Commit\*\*" <<<"$M" && grep -q "\*\*Kết quả test\*\*" <<<"$M" && ! grep -q "Mô tả" <<<"$M"'
+check "the ONE report has description, commits and tests (no separate start message)" 'grep -q "\*\*Mô tả\*\*" <<<"$M" && grep -q "\*\*Commit\*\*" <<<"$M" && grep -q "\*\*Kết quả test\*\*" <<<"$M"'
 check "commit has a GitHub link"                         'grep -q "\[$SHA1\](https://github.com/test/repo/commit/$SHA1)" <<<"$M"'
 check "test result is in the same message"               'grep -q "T1 ✅ PASS" <<<"$M"'
 check "the task branch was pushed so the link opens"     '[[ "$(git --git-dir="$T/remote.git" rev-parse "task/$slug" 2>/dev/null)" == "$(git rev-parse HEAD)" ]]'
@@ -64,14 +64,6 @@ sed -i.bak 's/- \[ \] 2\./- [x] 2./' .agents/tasks/*.md; rm -f .agents/tasks/*.b
 OPS progress $slug >/dev/null
 M="$(devmsgs)"
 check "they ride along with the next finished step"      '[[ "$(grep -c "=====MSG=====" <<<"$M")" == 1 ]] && grep -q "Bước 2/2" <<<"$M" && grep -q "T2 ❌ FAIL" <<<"$M" && grep -q "chore: tweak" <<<"$M"'
-
-echo "the message when a step STARTS:"
-find .agents/outbox -maxdepth 1 -name '*.json' -delete
-OPS step-start 6 opencode-go/glm-5.3 '- [ ] 2. [khó] `shared/src/decor.ts` → bỏ flip khỏi DecorationRotation' '- [ ] 3. [vừa] `tests/b.spec.ts` → viết test' >/dev/null
-M="$(devmsgs)"
-check "it announces the start of the steps"              'grep -q "Bắt đầu bước 2, 3/6" <<<"$M"'
-check "it has the description with difficulty and model" 'grep -q "\*\*Mô tả\*\*" <<<"$M" && grep -q "Bước 2\*\* · mức \*\*khó\*\* · model \`glm-5.3\`" <<<"$M" && grep -q "Bước 3\*\* · mức \*\*vừa\*\*" <<<"$M"'
-check "it shows what each step is about"                 'grep -q "bỏ flip khỏi DecorationRotation" <<<"$M"'
 
 echo "leftovers at the end (flush):"
 find .agents/outbox -maxdepth 1 -name '*.json' -delete
