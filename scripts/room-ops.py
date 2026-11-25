@@ -571,15 +571,18 @@ def cmd_block(task_id, reason):
     return msg
 
 
-def task_screenshots(t, limit=4):
+def task_screenshots(t, limit=4, recorded=None):
     """Screenshots made while verifying this task: those recorded when its Verify result was reported
     (time window), plus files named task-NN-* / containing its slug. Never anything else in the folder."""
     found = set()
-    try:
-        with open(f"{PROGRESS_DIR}/{t['slug']}.json", encoding="utf8") as f:
-            found |= {x for x in json.load(f).get("task_shots", []) if os.path.exists(x)}
-    except (OSError, ValueError):
-        pass
+    if recorded is not None:
+        found |= {x for x in recorded if os.path.exists(x)}
+    else:
+        try:
+            with open(f"{PROGRESS_DIR}/{t['slug']}.json", encoding="utf8") as f:
+                found |= {x for x in json.load(f).get("task_shots", []) if os.path.exists(x)}
+        except (OSError, ValueError):
+            pass
     prefix = f"task-{int(t['id'][1:]):02d}-"
     for f in screenshots():
         base = os.path.basename(f)
@@ -608,7 +611,9 @@ def cmd_finalize():
     for t in done:
         mode, result = verify_info(t)
         imgs = task_screenshots(t)
-        if imgs:
+        if imgs and progress_flag(t["slug"], "reported_images"):
+            note = f"Verify {result or mode} · 📸 {len(imgs)} ảnh trong báo cáo {t['id']} ở trên"   # already sent with the task report
+        elif imgs:
             note = f"Verify {result or mode} · 📸 {len(imgs)} ảnh ở trên"
             evidence.append((t, imgs, result or mode))
         elif mode == "none":
@@ -709,16 +714,28 @@ def git_remote_cmd(*args, timeout=40):
         return False
 
 
-def push_task_branch(slug, st):
-    """Push task/<slug> so the commit links in the report open on GitHub. Returns True when the links will work."""
+def push_branch(branch, st, key="push_retry_at"):
+    """Push a branch so the commit links in a report open on GitHub. Returns True when the links will work."""
     if read_env().get("COMMIT_LINKS", "true") != "true" or not repo_web_url():
         return False
-    if time.time() < st.get("push_retry_at", 0):
+    if time.time() < st.get(key, 0):
         return False
-    if git_remote_cmd("push", "-q", "origin", f"task/{slug}"):
+    if git_remote_cmd("push", "-q", "origin", branch):
         return True
-    st["push_retry_at"] = time.time() + 600   # offline or no rights: do not retry on every tick
+    st[key] = time.time() + 600   # offline or no rights: do not retry on every tick
     return False
+
+
+def push_task_branch(slug, st):
+    return push_branch(f"task/{slug}", st)
+
+
+def progress_flag(slug, key):
+    try:
+        with open(f"{PROGRESS_DIR}/{slug}.json", encoding="utf8") as f:
+            return bool(json.load(f).get(key))
+    except (OSError, ValueError):
+        return False
 
 
 def step_models(slug):
@@ -836,21 +853,22 @@ def cmd_progress(slug, flush=False):
         st["tests"].update(dict(changed))
         sent += 1
 
-    # D. Tech Lead: Verify result + new screenshots
+    # D. Tech Lead: Verify. A PASS is kept for the single end-of-task report (F); a FAIL is told right away because a fix cycle follows.
     if verify and verify != st["verify"]:
         new_shots = [f for f in shots if f not in st["shots"] and os.path.getmtime(f) >= st["t0"] - 5]
-        notes = [short(l.lstrip("-* ").strip(), 110) for l in section_lines(text, "Verify")[:6] if not l.startswith("VERIFY:")]
-        body = ["🔎 **Verify PASS** ✅ Mọi thứ chạy đúng như mong đợi!" if verify == "PASS"
-                else "🔎 **Verify chưa qua** ❌ Mình thấy có chỗ chưa đúng, đang xem lại nha."]
-        if notes:
-            body += ["", "**Ghi chú**"] + [f"- {n}" for n in notes]
-        if new_shots:
-            body += ["", "Ảnh chụp màn hình ở dưới nè 📸"]
-        emit("techlead", "\n".join(body), images=new_shots[-3:])
+        st["verify_notes"] = [short(l.lstrip("-* ").strip(), 110) for l in section_lines(text, "Verify")[:6] if not l.startswith("VERIFY:")]
         st["verify"] = verify
         st["shots"] = sorted(set(st["shots"]) | set(new_shots))
-        st["task_shots"] = sorted(set(st.get("task_shots", [])) | set(new_shots))   # evidence of THIS task, used by the ship report
-        sent += 1
+        st["task_shots"] = sorted(set(st.get("task_shots", [])) | set(new_shots))   # evidence of THIS task, used by the reports
+        if verify == "FAIL":
+            body = ["🔎 **Verify chưa qua** ❌ Mình thấy có chỗ chưa đúng, đang xem lại nha."]
+            if st["verify_notes"]:
+                body += ["", "**Ghi chú**"] + [f"- {n}" for n in st["verify_notes"]]
+            if new_shots:
+                body += ["", "Ảnh chụp màn hình ở dưới nè 📸"]
+            emit("techlead", "\n".join(body), images=new_shots[-3:])
+            st["shots_sent"] = sorted(set(st.get("shots_sent", [])) | set(new_shots[-3:]))
+            sent += 1
 
     # E. Tech Lead: fix cycles
     for h, sub in fix_commits:
@@ -866,10 +884,26 @@ def cmd_progress(slug, flush=False):
             st["fix"].append(h)
             sent += 1
 
-    # F. Tech Lead: merged into staging
+    # F. Tech Lead: ONE report when the task is merged: Verify result and notes, the merge commit (linked) and the pictures, sent once.
     if t["state"] in ("done", "shipped") and not st["done"]:
+        mode = (re.findall(r"^Verify mode:\s*(\w+)", text, re.M) or ["light"])[0]
+        notes = st.get("verify_notes") or [short(l.lstrip("-* ").strip(), 110) for l in section_lines(text, "Verify")[:6] if not l.startswith("VERIFY:")]
+        notes = [n for n in notes if n and not n.lower().startswith("bỏ qua")]
+        res = st["verify"] or verify
+        head = {"PASS": "✅ **PASS**", "FAIL": "❌ **FAIL**"}.get(res, f"bỏ qua (Verify mode: {mode})")
         rc, last = git("log", "-1", "--format=%h %s", stg)
-        emit("techlead", f"🎉 **{t['id']}** đã merge vào nhánh `{stg}` rồi nè!" + (f"\n- `{last.split(' ', 1)[0]}` {short(last.split(' ', 1)[1] if ' ' in last else '', 100)}" if rc == 0 else ""))
+        linked = push_branch(stg, st, "push_retry_stg") if rc == 0 else False
+        base = repo_web_url()
+        out = [f"🎉 **{t['id']}** xong rồi, đã merge vào nhánh `{stg}` nè!", "", "**Verify**", f"- Kết quả: {head}"] + [f"- {n}" for n in notes]
+        if rc == 0:
+            sha, _, sub = last.partition(" ")
+            out += ["", "**Merge**", f"- [{sha}]({base}/commit/{sha}) {short(sub, 100)}" if linked and base else f"- `{sha}` {short(sub, 100)}"]
+        imgs = [f for f in task_screenshots(t, 4, recorded=st.get("task_shots", [])) if f not in st.get("shots_sent", [])]
+        if imgs:
+            out += ["", "📸 Ảnh mình chụp lúc verify ở dưới nè"]
+        emit("techlead", "\n".join(out), images=imgs)
+        st["shots_sent"] = sorted(set(st.get("shots_sent", [])) | set(imgs))
+        st["reported_images"] = bool(imgs) or bool(st.get("shots_sent"))
         st["done"] = True
         sent += 1
 

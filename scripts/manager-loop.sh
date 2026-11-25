@@ -110,7 +110,7 @@ run_claude() { # vai(manager|techlead) prompt [nhãn]
   if [[ "$role" == techlead && -z "${RC_QUIET:-}" ]]; then
     case "$label" in
       *"lên plan"*) say_user "Mình bắt đầu **lên plan** cho **${label%% *}** nha 📝" techlead ;;
-      *verify*)     say_user "Dev báo xong rồi, mình qua **verify + review** **${label%% *}** đây 🔎" techlead ;;
+      *verify*)     : ;;   # không báo "bắt đầu verify": tin "Code xong hết rồi nè" của Dev đã là tín hiệu bàn giao, kết quả đến trong MỘT báo cáo cuối task
       *)            say_user "Mình bắt đầu: ${label} 🛠" techlead ;;
     esac
   fi

@@ -439,7 +439,7 @@ so it needs no extra Claude calls and works even if an agent forgets to report:
 | Role | Reports |
 |---|---|
 | `🧭 Manager` | Replies to commands, plan approval or block, the ship report with the **Ship** button |
-| `🛠 Tech Lead` | `▶` when each of its calls starts, `📋` plan summary (steps, tests, Verify mode), `🔎` Verify PASS/FAIL with the Verify notes and up to 3 new screenshots, `🔁` each fix cycle, `🎉` merged into `staging` |
+| `🛠 Tech Lead` | `▶` when it starts planning, `📋` plan summary (steps, tests, Verify mode), `🔁` each fix cycle, `🔎` a **failing** Verify at once (with notes and pictures, because a fix cycle follows), and **one report at the end of each task** (`🎉 T05 …`): **Verify** (result and the notes it wrote), **Merge** (the commit on `staging`, linked) and the verification pictures, attached once |
 | `⌨️ Senior Dev` | `▶` start; **one message per finished step**, in three sections: **Mô tả** (step, difficulty `dễ`/`vừa`/`khó` always shown, model used, step text), **Commit** (each commit with a link to it on GitHub) and **Kết quả test** (tests whose result changed during the step); `↗` a retry of a step with a stronger model; `⛔` when a step still fails on the strongest model; done or stuck (`watch-tasks.sh`) |
 
 The `↗` and `⛔` messages come from `run-task.sh` itself (it knows the model and the retries); the per-step report is derived from the task file and git by the daemon (`room-ops.py progress`). It relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
@@ -562,6 +562,8 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 Fresh context is automatic: every Tech Lead call is a new `claude -p` process (no `/clear` needed), and OpenCode only continues a session between step groups of the same task.
 
+**One Tech Lead report per task.** A passing Verify is not announced on its own: it waits for the merge and goes out in the single `🎉` report together with the merge commit and the pictures (a Verify that fails is told immediately). The pictures are sent only once: the ship approval then does not send them again, it just says "📸 N ảnh trong báo cáo T05 ở trên" next to the task. There is no separate "verify + review" start message either, because the Dev's "Code xong hết rồi nè" already is the hand-off signal. For the merge link to open, the daemon also pushes `staging` once per finished task (same `COMMIT_LINKS` switch). `tools/test-techlead-report.sh` covers it.
+
 ### Plan mode (`/plan`): ask without creating tasks
 
 `/auto` turns your text into tasks and starts coding. When you only want information, an opinion or a plan, use:
@@ -661,6 +663,7 @@ claude-opencode-agentic-kit/
 │   ├── test-plan-mode.sh           # regression test of /plan (read-only Q&A)
 │   ├── test-clear.sh               # regression test of /clear and /clearlog
 │   ├── test-step-report.sh         # one Dev message per step, commit links, push once per step
+│   ├── test-techlead-report.sh     # one Tech Lead report per task, pictures sent once
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
