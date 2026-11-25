@@ -125,6 +125,7 @@ PY
 }
 
 ensure_bridge() {   # bật bridge bot nếu chưa chạy (cần .agents/kit-dir do install.sh ghi)
+  [[ -z "${AGENT_BRIDGE_UP:-}" ]] || return 0   # đang được chính bridge gọi (/newroom): bridge chắc chắn đang chạy
   local kit; kit="$(cat "$AG/kit-dir" 2>/dev/null || true)"
   if [[ -x "$kit/bridge-bot/bridge.sh" ]]; then
     "$kit/bridge-bot/bridge.sh" start || echo "⚠️  Không bật được bridge — phòng vẫn chạy, nhưng Telegram chưa nối."

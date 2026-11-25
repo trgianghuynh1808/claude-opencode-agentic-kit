@@ -3,7 +3,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { chunk, toHtml } from "./format.js";
 import net from "node:net";
-import { execFile } from "node:child_process";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
+import { execFile, spawn } from "node:child_process";
+import { kitArgs, nowNs, parseKitOutput, parseNewRoom, topicColor, topicLink, topicTitle, type NewRoomRequest } from "./newroom.js";
 
 // ---------- config ----------
 const BOT_TOKEN = process.env.BOT_TOKEN ?? "";
@@ -12,7 +15,13 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom"]);
+// /newroom runs the `kit` CLI that lives two folders above dist/. API_ROOT / KIT_EXTRA_ARGS exist for the end-to-end test (fake Telegram, --no-start).
+const KIT_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "kit");
+const PROJECTS_DIR = path.resolve(process.env.KIT_PROJECTS_DIR ?? path.join(os.homedir(), "Documents", "projects"));
+const API_ROOT = process.env.TELEGRAM_API_ROOT;
+const KIT_EXTRA_ARGS = (process.env.KIT_EXTRA_ARGS ?? "").split(/\s+/).filter(Boolean);
+const botOptions = API_ROOT ? { client: { apiRoot: API_ROOT } } : undefined;
 
 if (!BOT_TOKEN) {
   console.error("Set BOT_TOKEN (see .env.example).");
@@ -182,13 +191,13 @@ async function health(room: Room): Promise<string> {
 }
 
 // ---------- inbound: Telegram -> .agents/inbox ----------
-const bot = new Bot(BOT_TOKEN);
+const bot = new Bot(BOT_TOKEN, botOptions);
 
 // Optional extra identities. They only send (never poll); without a token the role falls back to the main bot.
 const roleApis: Record<Role, Bot["api"]> = {
   manager: bot.api,
-  techlead: process.env.BOT_TOKEN_TECHLEAD ? new Bot(process.env.BOT_TOKEN_TECHLEAD).api : bot.api,
-  dev: process.env.BOT_TOKEN_DEV ? new Bot(process.env.BOT_TOKEN_DEV).api : bot.api,
+  techlead: process.env.BOT_TOKEN_TECHLEAD ? new Bot(process.env.BOT_TOKEN_TECHLEAD, botOptions).api : bot.api,
+  dev: process.env.BOT_TOKEN_DEV ? new Bot(process.env.BOT_TOKEN_DEV, botOptions).api : bot.api,
 };
 
 if (DISCOVERY) {
@@ -206,8 +215,15 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   const topicId = ctx.message.message_thread_id;
+  const text = ctx.message.text;
+  const m = text.match(/^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i);
+  const command = m && COMMANDS.has(m[1].toLowerCase()) ? `/${m[1].toLowerCase()}` : null;
+  if (command === "/newroom") {   // works anywhere in the group, including General: it creates the Topic itself
+    await handleNewRoom(ctx, (m?.[2] ?? "").trim());
+    return;
+  }
   if (topicId === undefined) {
-    await sendRich(bot.api, ctx.chat.id, "Bạn nhắn trong **Topic của project** giúp mình nha 🙏 (khu General không có phòng nào hết).");
+    await sendRich(bot.api, ctx.chat.id, "Bạn nhắn trong **Topic của project** giúp mình nha 🙏 (khu General không có phòng nào hết). Muốn tạo phòng mới thì gõ `/newroom <tên-project> <port>` nhé.");
     return;
   }
   const room = (await loadRooms()).find((r) => r.topicId === topicId);
@@ -216,15 +232,12 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  const text = ctx.message.text;
-  const m = text.match(/^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i);
-  const command = m && COMMANDS.has(m[1].toLowerCase()) ? `/${m[1].toLowerCase()}` : null;
   if (command === "/health") {
     await sendRich(bot.api, ctx.chat.id, await health(room), { message_thread_id: topicId });
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
     return;
   }
   if (command === "/auto" && !m?.[2]?.trim()) {
@@ -239,6 +252,7 @@ bot.on("message:text", async (ctx) => {
 
 bot.on("callback_query:data", async (ctx) => {
   if (ctx.from.id !== ADMIN_USER_ID) return void (await ctx.answerCallbackQuery());
+  if (ctx.callbackQuery.data.startsWith("nr:")) return void (await handleNewRoomButton(ctx));
   const [action, topic] = ctx.callbackQuery.data.split(":");
   const room = (await loadRooms()).find((r) => r.topicId === Number(topic));
   if (!room || (action !== "ship" && action !== "keep")) return void (await ctx.answerCallbackQuery("Không hợp lệ"));
@@ -246,6 +260,160 @@ bot.on("callback_query:data", async (ctx) => {
   await ctx.answerCallbackQuery(action === "ship" ? "Đã gửi /ship" : "Đã giữ lại");
   await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
 });
+
+// ---------- /newroom: create a Topic, set the project up with `kit`, let the three bots say hello ----------
+interface PendingRoom { req: NewRoomRequest; dir: string; existing: boolean; originThread?: number; expires: number }
+const pendingRooms = new Map<string, PendingRoom>();
+let creatingRoom = false;
+
+async function handleNewRoom(ctx: Context, args: string): Promise<void> {
+  const origin = ctx.message?.message_thread_id;
+  const say = (text: string, extra: SendOpts = {}) =>
+    sendRich(bot.api, ctx.chat!.id, text, { ...(origin !== undefined ? { message_thread_id: origin } : {}), ...extra });
+  const parsed = parseNewRoom(args);
+  if (!parsed.ok) return void (await say(parsed.error));
+  const { req } = parsed;
+  const dir = path.join(PROJECTS_DIR, req.name);
+
+  if (creatingRoom) return void (await say("Mình đang dựng một phòng khác, bạn chờ xíu rồi gõ lại nha ⏳"));
+  if ((await loadRooms()).some((r) => path.resolve(r.path) === dir)) {
+    return void (await say(`Project **${req.name}** đã có phòng rồi nè 🏠 Gõ \`/status\` trong Topic của nó nhé.`));
+  }
+  const stat = await fs.stat(dir).catch(() => null);
+  let existing = false;
+  if (stat) {
+    if (!stat.isDirectory()) return void (await say(`\`${dir}\` là một file, không phải thư mục 😅`));
+    const isGit = await fs.stat(path.join(dir, ".git")).then(() => true, () => false);
+    const empty = (await fs.readdir(dir)).length === 0;
+    if (isGit) existing = true;
+    else if (!empty) return void (await say(`Thư mục \`${dir}\` đã có file nhưng chưa phải git repo 🙈\nBạn \`git init\` và commit giúp mình rồi gõ lại nhé.`));
+  }
+
+  // Fail before creating the Topic: otherwise a problem in the project would leave an empty Topic behind.
+  if (existing) {
+    if (await fs.stat(path.join(dir, ".agents", "room.env")).then(() => true, () => false)) {
+      return void (await say(`\`${req.name}\` đã là một phòng rồi nhưng chưa có trong sổ đăng ký bridge 🤔 Bạn chạy \`kit status --all\` để xem nhé.`));
+    }
+    if (!(await run("git", ["rev-parse", "HEAD"], dir)).ok) return void (await say(`Project **${req.name}** chưa có commit nào 🙈 Bạn commit một lần giúp mình rồi gõ lại nhé.`));
+    if ((await run("git", ["status", "--porcelain"], dir)).out) {
+      return void (await say(`Project **${req.name}** đang có file chưa commit nên mình chưa gắn phòng được ⚠️\nBạn commit hoặc stash giúp mình rồi gõ lại nhé.`));
+    }
+  } else if (!req.local && !(await run("gh", ["auth", "status"])).ok) {
+    return void (await say("Mình chưa tạo được repo GitHub vì `gh` chưa đăng nhập 🔑\nBạn chạy `gh auth login` giúp mình, hoặc gõ lại kèm `local` để chỉ tạo project trên máy nhé."));
+  }
+
+  const id = Math.random().toString(36).slice(2, 8);
+  pendingRooms.set(id, { req, dir, existing, originThread: origin, expires: Date.now() + 10 * 60_000 });
+  const lines = [
+    "Mình sắp tạo phòng mới nè 🏠", "",
+    `**Topic:** \`${topicTitle(req.name)}\``,
+    existing ? `**Project:** \`${dir}\` (đã có, mình gắn phòng vào)` : `**Project:** \`${dir}\` (tạo mới)`,
+    `**Port dev server:** \`${req.port}\``,
+  ];
+  if (!existing) lines.push(req.local ? "- GitHub: không tạo (chỉ local)" : `- GitHub: tạo repo **${req.private ? "PRIVATE" : "PUBLIC"}** rồi push`);
+  if (req.agents) lines.push("- Claude sẽ soạn nháp `AGENTS.md` (tốn một lần gọi Claude)");
+  lines.push("", "Bạn xác nhận nhé? 👇");
+  await say(lines.join("\n"), { reply_markup: new InlineKeyboard().text("✅ Tạo phòng", `nr:ok:${id}`).text("❌ Huỷ", `nr:no:${id}`) });
+}
+
+async function handleNewRoomButton(ctx: Context): Promise<void> {
+  const [, action, id] = (ctx.callbackQuery?.data ?? "").split(":");
+  const pending = pendingRooms.get(id);
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+  if (!pending || pending.expires < Date.now()) {
+    pendingRooms.delete(id);
+    return void (await ctx.answerCallbackQuery("Yêu cầu đã hết hạn, bạn gõ lại /newroom nha"));
+  }
+  pendingRooms.delete(id);
+  if (action !== "ok") return void (await ctx.answerCallbackQuery("Đã huỷ"));
+  await ctx.answerCallbackQuery("Đang tạo phòng…");
+  void createRoom(pending);   // long-running: do not block the update loop
+}
+
+function runKit(args: string[]): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    // No shell and no stdin: `kit` runs non-interactively (--yes) and every argument comes from newroom.ts.
+    const child = spawn(KIT_BIN, args, { env: { ...process.env, AGENT_ROOMS_FILE: ROOMS_FILE, AGENT_BRIDGE_UP: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    const timer = setTimeout(() => child.kill("SIGTERM"), 20 * 60_000);
+    child.on("close", (code) => { clearTimeout(timer); resolve({ code, out }); });
+    child.on("error", (e) => { clearTimeout(timer); resolve({ code: -1, out: String(e) }); });
+  });
+}
+
+/** Warnings for role bots that cannot post in the group (a Topic has no member list: any bot in the group can post in it). */
+async function botsNotInGroup(): Promise<string[]> {
+  const warns: string[] = [];
+  for (const [role, token, label] of [["techlead", process.env.BOT_TOKEN_TECHLEAD, "Tech Lead"], ["dev", process.env.BOT_TOKEN_DEV, "Senior Dev"]] as const) {
+    if (!token) continue;
+    try {
+      const me = await roleApis[role].getMe();
+      const member = await bot.api.getChatMember(CHAT_ID, me.id);
+      if (member.status === "left" || member.status === "kicked") warns.push(`Bot ${label} (@${me.username}) chưa ở trong group, bạn thêm nó vào giúp mình nhé`);
+    } catch (e) {
+      warns.push(`Mình không kiểm tra được bot ${label}: ${(e as Error).message}`);
+    }
+  }
+  return warns;
+}
+
+async function writeRoomOutbox(room: Room, role: Role, text: string): Promise<void> {
+  await writeAtomic(path.join(room.path, ".agents", "outbox", `${nowNs()}-${role}.json`), JSON.stringify({ from: role, text }));
+}
+
+async function createRoom(p: PendingRoom): Promise<void> {
+  creatingRoom = true;
+  const { req } = p;
+  const title = topicTitle(req.name);
+  const sayAt = (threadId: number | undefined, text: string) =>
+    sendRich(bot.api, CHAT_ID, text, threadId !== undefined ? { message_thread_id: threadId } : {}).catch((e) => console.error("say failed:", (e as Error).message));
+  try {
+    const warns = await botsNotInGroup();
+
+    let threadId: number;
+    try {
+      threadId = (await bot.api.createForumTopic(CHAT_ID, title, { icon_color: topicColor(req.name) })).message_thread_id;
+    } catch (e) {
+      await sayAt(p.originThread, `Mình chưa tạo được Topic 😢\n**Lý do:** ${(e as Error).message}\n\nBạn kiểm tra giúp mình: group đã bật **Topics** và ManagerBot là admin có quyền **Manage Topics** chưa nhé.`);
+      return;
+    }
+    const link = topicLink(CHAT_ID, threadId);
+    await sayAt(p.originThread, `Mình tạo Topic **${title}** rồi nè 🎉${link ? `\n${link}` : ""}`);
+    await sayAt(threadId, `Chào mừng đến phòng **${title}** 🎉\nMình đang dựng project, chờ mình xíu nha ⏳ (có thể mất vài phút)`);
+    if (warns.length) await sayAt(threadId, `⚠️ ${warns.join("\n⚠️ ")}`);
+
+    const { code, out } = await runKit(kitArgs(req, p.existing, p.dir, threadId, KIT_EXTRA_ARGS));
+    const { repoUrl, tail } = parseKitOutput(out);
+    if (code !== 0) {
+      console.error(`kit exited with ${code}:\n${out}`);
+      await sayAt(threadId, `Ối, mình dựng phòng chưa xong 😢 (mã lỗi ${code})\n\n**Những dòng cuối**\n${tail.map((l) => `- ${l.slice(0, 160)}`).join("\n")}\n\nTopic này vẫn còn. Bạn xử lý xong có thể chạy lại:\n\`kit ${p.existing ? "add" : "new"} ${p.existing ? p.dir : req.name} --topic ${threadId} --port ${req.port}\``);
+      return;
+    }
+
+    const room = (await loadRooms()).find((r) => r.topicId === threadId);
+    if (!room) { await sayAt(threadId, "Dựng xong nhưng mình không thấy phòng trong sổ đăng ký 🤔 Bạn kiểm tra `kit status` giúp mình nhé."); return; }
+
+    // The three bots say hello through the normal outbox, so each one speaks with its own identity and header.
+    await writeRoomOutbox(room, "manager", [
+      `Phòng **${title}** đã sẵn sàng! 🚀`, "",
+      "**Thông tin**", `- Thư mục: \`${p.dir}\``, `- Port dev server: \`${req.port}\``,
+      ...(repoUrl ? [`- Repo GitHub: ${repoUrl}`] : []), "",
+      "**Bắt đầu thôi**", "- `/health` để kiểm tra các agent", "- `/auto <việc cần làm>` để giao việc, mỗi dòng một việc", "",
+      req.agents ? "Mình đã nhờ Claude soạn nháp `AGENTS.md`, bạn đọc lại trước khi giao task đầu tiên nhé 📖" : "Nhớ điền `AGENTS.md` để các agent biết cách chạy app và test nha 📖",
+    ].join("\n"));
+    await writeRoomOutbox(room, "techlead", "Chào bạn, mình là **Tech Lead** 🛠\nMình sẽ lên plan, verify và review cho project này nha.");
+    await writeRoomOutbox(room, "dev", "Hello! Mình là **Senior Dev** ⌨️\nMình lo viết code và chạy test. Rất vui được làm việc cùng bạn! 💪");
+    await new Promise((r) => setTimeout(r, Number(process.env.NEWROOM_HEALTH_DELAY_MS ?? "6000")));   // let the daemon come up before checking it
+    await sendRich(bot.api, CHAT_ID, await health(room), { message_thread_id: threadId });
+  } catch (e) {
+    console.error("createRoom failed:", e);
+    await sayAt(p.originThread, `Mình gặp lỗi khi tạo phòng 😢 ${(e as Error).message}`);
+  } finally {
+    creatingRoom = false;
+  }
+}
 
 // ---------- outbound: .agents/outbox -> Telegram ----------
 const attempts = new Map<string, number>();
@@ -327,6 +495,7 @@ if (!DISCOVERY) {
     { command: "stop", description: "Tắt AUTO_MODE, dừng nhận task mới" },
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
+    { command: "newroom", description: "Tạo phòng mới: /newroom <tên> <port>" },
   ];
   for (const scope of [{ type: "default" as const }, { type: "all_group_chats" as const }, { type: "chat" as const, chat_id: CHAT_ID }]) {
     bot.api.setMyCommands(menu, { scope }).catch((err) => console.error("setMyCommands failed:", (err as Error).message));

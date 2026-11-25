@@ -485,6 +485,30 @@ git add -A && git commit -m "chore: add agent room"
 - Verify uses `DEFAULT_VERIFY_URL` with its port replaced by `<PORT>` (so `?test=1` is kept). `rooms.json` lives in `<kit>/bridge-bot/` (override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot); it is hot-reloaded.
 - After upgrading the kit, use `kit upgrade` (a dirty working tree blocks hand-off, so rooms must be committed).
 
+### Create a room from Telegram (`/newroom`)
+
+No terminal needed. In any Topic of the group (General works too) type:
+
+```
+/newroom tea-party 3001                 # existing folder ~/Documents/projects/tea-party -> adds a room to it; if the folder does not exist -> creates the project
+/newroom my-app 5173 private agents     # new project, PRIVATE GitHub repo, Claude drafts AGENTS.md
+/newroom my-app 5173 local              # new project, no GitHub repo
+```
+
+The bot answers with a card (Topic name, folder, port, whether a GitHub repo will be created, **PUBLIC** by default) and two buttons. After **✅ Tạo phòng** it:
+
+1. Checks the project first (uncommitted files, no commit yet, `gh` not logged in, a room that already exists) and stops **before** creating anything.
+2. Checks that the Tech Lead and Senior Dev bots are members of the group.
+3. Creates the Topic **`project-<name>`**, posts the link where you typed the command, and a welcome inside the new Topic.
+4. Runs `kit new` (or `kit add` for an existing folder) with the new Topic id: folder, git, GitHub repo, kit install, room registration, commit, start.
+5. Lets **the three bots say hello in the new Topic**, each with its own name and avatar (Manager with the project info and next steps, Tech Lead, Senior Dev), then posts a `/health` report.
+
+A Telegram Topic has no member list of its own: every bot that is in the group can post in every Topic. So "adding the bots to the Topic" means checking they are in the group and having each one speak there; if a role bot is missing from the group the card says so.
+
+Requirements: Topics enabled, the main bot (ManagerBot) is an admin with **Manage Topics**, `gh auth login` done for new GitHub repos, and the other prerequisites of `kit add`. If `kit` fails after the Topic exists, the Topic stays and the bot posts the last lines of the output with the command to retry (`kit add … --topic <id>`).
+Safety: only `ADMIN_USER_ID` can use it, names are restricted to letters, digits, `.`, `_`, `-` and always live under `KIT_PROJECTS_DIR`, `kit` is started without a shell and without stdin, only one room is built at a time, and the confirmation card expires after 10 minutes.
+`npm test` (unit) and `npm run test:e2e` (the real bridge and the real `kit` against a fake Telegram API and a fake `gh`) in `bridge-bot/` cover it.
+
 ### Daily use
 
 ```bash
@@ -510,6 +534,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
 | `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button |
+| `/newroom <name> <port> [private] [local] [agents]` | Create a Topic `project-<name>` and a whole room (see [Create a room from Telegram](#create-a-room-from-telegram-newroom)); usable in any Topic, even General |
 
 **Pre-flight.** Before it starts a task, the daemon checks that the OpenCode watcher is alive (`.agents/watcher.pid`). If not, it turns AUTO_MODE off and tells you, instead of leaving the hand-off stuck in `queued`. Run `/health` before `/auto` to see everything at once.
 
@@ -609,6 +634,8 @@ claude-opencode-agentic-kit/
 ├── bridge-bot/                     # Telegram Topics <-> .agents/inbox & outbox (Node/TypeScript, grammy)
 │   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
 │   ├── src/format.ts               # light markdown -> Telegram HTML, line-based chunking
+│   ├── src/newroom.ts              # /newroom: argument validation, kit arguments, topic naming (pure, tested)
+│   ├── test/                       # unit tests + e2e-newroom.mjs (fake Telegram API)
 │   └── .env.example
 ├── prompts/                        # prompt templates (Vietnamese)
 │   ├── MANAGER.md                  # Manager prompt for judgement calls only (installed to .agents/MANAGER.md)
