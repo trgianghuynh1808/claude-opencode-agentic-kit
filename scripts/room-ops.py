@@ -1171,7 +1171,7 @@ def plan_card_text(t, text, steps, verdict, ask, held=False):
            ("⚠️ Plan này có rủi ro nghiêm trọng nên mình **giữ lại chờ bạn duyệt**. Mình làm task kế tiếp trước, bạn duyệt lúc nào thì task này chạy lúc đó." if held else
             "Tech Lead đã lên plan xong, mời bạn xem và duyệt 👀") if ask else
            "Tech Lead đã lên plan xong. Phòng đang ở chế độ tự duyệt nên mình kiểm tra rồi giao OpenCode luôn."]
-    for title, sec, n in (("Mục tiêu", "Mục tiêu", 6), ("Quyết định đã chốt", "Quyết định đã chốt", 5)):
+    for title, sec, n in (("Mục tiêu", "Mục tiêu", 6), ("Ý tưởng", "Ý tưởng", 5), ("Quyết định đã chốt", "Quyết định đã chốt", 5)):
         rows = bullet_lines(text, sec, n)
         if rows:
             out += ["", f"**{title}**"] + [f"- {r}" for r in rows]
@@ -1207,6 +1207,16 @@ def plan_card_text(t, text, steps, verdict, ask, held=False):
 
 
 def cmd_progress(slug, flush=False):
+    """One report pass per task at a time: the background progress loop and the daemon both call this, and without the lock
+    both could see "plan card not sent yet" and send it twice."""
+    import fcntl
+    os.makedirs(PROGRESS_DIR, exist_ok=True)
+    with open(f"{PROGRESS_DIR}/{slug}.lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        return _cmd_progress(slug, flush)
+
+
+def _cmd_progress(slug, flush=False):
     lines = read_board()
     t = next((t for t in tasks(lines) if t["slug"] == slug), None)
     if not t:

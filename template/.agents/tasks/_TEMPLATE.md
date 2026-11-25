@@ -5,6 +5,9 @@ Verify mode: light
 
 ## Mục tiêu
 
+## Ý tưởng
+<!-- 2-4 dòng mô tả sơ bộ cách làm (hướng tiếp cận, không phải danh sách bước); hiện trong thẻ plan gửi người dùng -->
+
 ## Quyết định đã chốt
 -
 

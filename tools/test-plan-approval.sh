@@ -39,6 +39,8 @@ Verify mode: light
 ## Mục tiêu
 - Cho phép tải ảnh raw lên portal
 - Phân tích ra từng món
+## Ý tưởng
+- IDEA_MARKER cắt ảnh bằng canvas rồi gửi lên server
 ## Quyết định đã chốt
 - Dùng canvas để cắt ảnh
 ## Ngữ cảnh
@@ -63,12 +65,17 @@ check "ONE message, from the Manager, with the approval buttons flag" '[[ "$(gre
 check "it shows the goals and the decisions"            'grep -q "\*\*Mục tiêu\*\*" <<<"$M" && grep -q "Cho phép tải ảnh raw" <<<"$M" && grep -q "\*\*Quyết định đã chốt\*\*" <<<"$M" && grep -q "Dùng canvas" <<<"$M"'
 check "every step with its difficulty and the mix"      'grep -q "Các bước\*\* (3 · 1 khó · 1 vừa · 1 dễ)" <<<"$M" && grep -q "1\. \*\*khó\*\* ·" <<<"$M" && grep -q "3\. \*\*dễ\*\* ·" <<<"$M"'
 check "the test cases (names only), the files, the Verify mode" 'grep -q "Test case\*\* (2)" <<<"$M" && grep -q "T1 · Upload" <<<"$M" && ! grep -q "không hiện trong thẻ" <<<"$M" && grep -q "File sẽ động tới" <<<"$M" && grep -q "\`server/portal/index.html\`" <<<"$M" && grep -q "Verify:\*\* light" <<<"$M"'
+check "the idea sits right after the goals" 'grep -q "\*\*Ý tưởng\*\*" <<<"$M" && grep -q "IDEA_MARKER" <<<"$M" && [[ "$(grep -n "Mục tiêu\*\*" <<<"$M" | cut -d: -f1)" -lt "$(grep -n "Ý tưởng\*\*" <<<"$M" | cut -d: -f1)" ]]'
 check "the automatic check result and how to answer"    'grep -q "Kiểm tra tự động" <<<"$M" && grep -q "/approve" <<<"$M" && grep -q "/revise" <<<"$M"'
 check "the task now waits for the user"                 '[[ "$(state T01)" == awaiting_plan ]] && grep -q "AWAITING_PLAN_APPROVAL" .agents/board.md'
 clearbox; OPS progress task-01-up >/dev/null
 check "the card is not sent twice"                      '[[ -z "$(msgs)" ]]'
 cmd /status; check "/status says it waits for you"      'grep -q "chờ bạn duyệt plan" <<<"$(alltext)"'; clearbox
 
+check "two reports at once send ONE card (lock)" 'clearbox; sed -i.bak "s/\`T01\` \[awaiting_plan\]/\`T01\` [plan_ready]/" .agents/board.md; rm -f .agents/board.md.bak; python3 - <<PY
+import json;p=".agents/progress/task-01-up.json";d=json.load(open(p));d["plan"]=False;json.dump(d,open(p,"w"))
+PY
+(OPS progress task-01-up >/dev/null & OPS progress task-01-up >/dev/null & wait); [[ "$(msgs | wc -l | tr -d " ")" == 1 ]]'
 echo "/revise:"
 cmd /revise "tách bước 1 thành hai bước nhỏ hơn"
 check "state becomes revise and the feedback is kept"   '[[ "$(state T01)" == revise ]] && grep -q "tách bước 1" .agents/plan-feedback/task-01-up.md'
