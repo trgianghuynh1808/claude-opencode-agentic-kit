@@ -42,7 +42,8 @@ async function loadRooms(): Promise<Room[]> {
     const data = JSON.parse(await fs.readFile(ROOMS_FILE, "utf8"));
     return Array.isArray(data.rooms) ? data.rooms : [];
   } catch (err) {
-    console.error(`Cannot read ${ROOMS_FILE}:`, (err as Error).message);
+    // A missing file just means "no room yet" (rooms.json is per machine and git-ignored): stay quiet about that.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.error(`Cannot read ${ROOMS_FILE}:`, (err as Error).message);
     return [];
   }
 }

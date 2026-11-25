@@ -490,7 +490,7 @@ git add -A && git commit -m "chore: add agent room"
 ```
 
 - `install.sh` never overwrites an existing `CLAUDE.md`; `kit` patches its AUTO_MODE section for you (by hand: copy the `## AUTO_MODE` section from `template/CLAUDE.md`).
-- Verify uses `DEFAULT_VERIFY_URL` with its port replaced by `<PORT>` (so `?test=1` is kept). `rooms.json` lives in `<kit>/bridge-bot/` (override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot); it is hot-reloaded.
+- Verify uses `DEFAULT_VERIFY_URL` with its port replaced by `<PORT>` (so `?test=1` is kept). `rooms.json` lives in `<kit>/bridge-bot/` (override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot); it is hot-reloaded. It is per machine and **git-ignored** (it holds local paths): `kit add`/`kit new` create it, `bridge-bot/rooms.example.json` shows the shape.
 - After upgrading the kit, use `kit upgrade` (a dirty working tree blocks hand-off, so rooms must be committed).
 
 ### Create a room from Telegram (`/newroom`)
