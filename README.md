@@ -478,9 +478,18 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
 | `/usage` | Tokens, turns and list-price cost of the Claude calls today, per role, plus the last 5 calls (from `.agents/logs/usage.log`) |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
-| `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`); also the **Ship** button |
+| `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button |
 
 **Pre-flight.** Before it starts a task, the daemon checks that the OpenCode watcher is alive (`.agents/watcher.pid`). If not, it turns AUTO_MODE off and tells you, instead of leaving the hand-off stuck in `queued`. Run `/health` before `/auto` to see everything at once.
+
+**Clean-up after `/ship`** (code, no AI; a failure here never undoes the ship, and the result is appended to the ship reply as `🧹 Đã dọn: …`):
+- `.agents/status/*` and `.agents/progress/*` of every shipped task are deleted.
+- Verification screenshots move to `.agents/screenshots/archive/<date-time>/`; only the 3 newest batches are kept (archived images are never attached to reports).
+- The board keeps the newest `KEEP_SHIPPED` (default 5) shipped tasks; older ones are removed and noted in the Activity Log. Numbering keeps going because the newest task always stays.
+- Files in `inbox/processed`, `inbox/failed`, `outbox/sent`, `outbox/failed` older than 7 days are deleted.
+- Task plan files in `.agents/tasks/` are kept: they are part of the repository history.
+
+Fresh context is automatic: every Tech Lead call is a new `claude -p` process (no `/clear` needed), and OpenCode only continues a session between step groups of the same task.
 
 ### Watching a room
 
@@ -506,7 +515,7 @@ Logs in `.agents/logs/` (progress messages are not logged, they go straight to T
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
-`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`).
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
 Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
