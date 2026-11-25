@@ -39,7 +39,7 @@ Verify mode: light
 <!-- Bước Verify tự điền: từng kịch bản đã kiểm tra trên trình duyệt, PASS/FAIL, screenshot, lỗi phát hiện, dòng kết luận cuối cùng. -->
 
 ## Lưu ý
-<!-- Điều người duyệt cần biết: lệch plan, phần chưa kiểm tra, bug đã biết, việc nên làm tiếp. Mỗi dòng một ý; hệ thống chuyển lên Telegram. -->
+<!-- Điều người duyệt cần biết: lệch plan, phần chưa kiểm tra, bug đã biết, việc nên làm tiếp. Mỗi dòng một ý; hệ thống chuyển lên Telegram. CHỈ cho người duyệt: không ghi nhắc việc cho agent/maintainer (vd "nên áp dụng vào kit", "chạy lại X sau"), những ý đó để trong Ngữ cảnh hoặc Trạng thái hiện tại, không dùng "Lưu ý:". -->
 
 ## Đã thử mà không được
 -
