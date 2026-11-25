@@ -41,6 +41,8 @@ HELP = ("Mình chỉ hiểu mấy lệnh này thôi nha 😅\n"
         "- `/health` · kiểm tra các agent\n"
         "- `/usage` · xem mức dùng token\n"
         "- `/plan <câu hỏi>` · hỏi đáp, phân tích project (chỉ đọc, không sửa gì)\n"
+        "- `/clear` · dọn board và trạng thái cũ (lưu bản sao board)\n"
+        "- `/clearlog` · dọn log chạy (giữ vài trăm dòng cuối)\n"
         "- `/stop` · dừng lại\n"
         "- `/resume` · chạy tiếp\n"
         "- `/ship` · đưa lên main\n"
@@ -232,6 +234,117 @@ def clean_item(line):
     return line.strip()
 
 
+def next_task_number(lines):
+    """Next task number. Looks at the board, at the plan files and at the task branches, so a cleared board does not restart at T01
+    (that would reuse branch and plan names of finished tasks)."""
+    nums = [int(t["id"][1:]) for t in tasks(lines)]
+    for f in glob.glob(f"{AG}/tasks/*task-*.md"):
+        m = re.search(r"task-(\d+)-", os.path.basename(f))
+        if m:
+            nums.append(int(m.group(1)))
+    rc, out = git("branch", "--list", "task/task-*", "--format=%(refname:short)")
+    if rc == 0:
+        for b in out.splitlines():
+            m = re.match(r"task/task-(\d+)-", b.strip())
+            if m:
+                nums.append(int(m.group(1)))
+    return max(nums) + 1 if nums else 1
+
+
+def busy_reason():
+    """Why the room must not be cleaned right now ('' when it is idle)."""
+    if read_env().get("AUTO_MODE") == "true":
+        return "chế độ tự động đang bật"
+    for t in tasks(read_board()):
+        if t["state"] in ("planning", "plan_ready", "in_progress"):
+            return f"{t['id']} đang dở ({t['state']})"
+    for f in glob.glob(f"{AG}/status/*.status"):
+        try:
+            with open(f, encoding="utf8") as fh:
+                if fh.read().split()[0] in ("queued", "running"):
+                    return "OpenCode đang chạy"
+        except (OSError, IndexError):
+            pass
+    if glob.glob(f"{AG}/queue/*.job*"):
+        return "còn job trong hàng đợi"
+    try:
+        with open(f"{AG}/plan.pid", encoding="utf8") as fh:
+            os.kill(int(fh.read().strip()), 0)
+        return "đang trả lời một câu hỏi /plan"
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+def remove_files(patterns):
+    n = 0
+    for pat in patterns:
+        for f in glob.glob(pat):
+            if os.path.isfile(f):
+                os.remove(f)
+                n += 1
+    return n
+
+
+def cmd_clear():
+    why = busy_reason()
+    if why:
+        return (f"Mình chưa dọn được vì phòng đang bận 🙅 ({why}).\n"
+                "Bạn gõ `/stop`, đợi việc đang chạy xong rồi gõ `/clear` lại nhé.")
+    lines = read_board()
+    ts = tasks(lines)
+    archive_dir = f"{AG}/board-archive"
+    os.makedirs(archive_dir, exist_ok=True)
+    archive = f"{archive_dir}/{datetime.now():%Y%m%d-%H%M%S}.md"
+    shutil.copyfile(BOARD, archive)
+    for old in sorted(glob.glob(f"{archive_dir}/*.md"))[:-10]:
+        os.remove(old)   # keep the 10 newest copies
+    title = lines[0] if lines and lines[0].startswith("# ") else "# Project Board"
+    fresh = [title, "", "- **Auto Mode:** OFF", "- **Current Phase:** IDLE",
+             f"- **Staging Branch:** {read_env().get('STAGING_BRANCH', 'staging')}", "", "## Checklist & Tasks", "", "## Activity Log", ""]
+    log_line(fresh, f"/clear: board dọn sạch ({len(ts)} task), bản sao ở {os.path.basename(archive)}.")
+    write_board(fresh)
+    set_env("AUTO_MODE", "false")
+    n_state = remove_files([f"{AG}/status/*", f"{AG}/progress/*", f"{AG}/queue/*"])
+    n_msg = remove_files([f"{AG}/inbox/processed/*", f"{AG}/inbox/failed/*", f"{AG}/outbox/sent/*", f"{AG}/outbox/failed/*"])
+    n_plan = remove_files([f"{AG}/plan/*"])
+    remove_files([f"{AG}/manager.sig"])
+    return ("Dọn dẹp xong nè 🧹\n\n"
+            f"- **Board:** đã reset ({len(ts)} task), bản sao ở `.agents/board-archive/{os.path.basename(archive)}`. Task mới sẽ tiếp tục từ **T{next_task_number(fresh):02d}**\n"
+            f"- **Đã xóa:** {n_state} file trạng thái task, {n_msg} tin cũ, {n_plan} file hỏi đáp `/plan`\n"
+            "- **Không đụng tới:** cấu hình phòng, file plan trong git, ảnh, log và `usage.log` (dùng `/clearlog` để dọn log)")
+
+
+def human_size(n):
+    return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{n / 1024:.0f} KB" if n >= 1024 else f"{n} B"
+
+
+def cmd_clearlog(args=""):
+    why = busy_reason()
+    if why:
+        return (f"Mình chưa dọn log được vì phòng đang bận 🙅 ({why}).\n"
+                "Bạn gõ `/stop`, đợi việc đang chạy xong rồi gõ `/clearlog` lại nhé.")
+    keep = int(args.split()[0]) if args.split() and args.split()[0].isdigit() else 200
+    files = [f"{AG}/run.log"] + sorted(glob.glob(f"{AG}/logs/*.log") + glob.glob(f"{AG}/logs/*.err"))
+    freed, rows = 0, []
+    for f in files:
+        if os.path.basename(f) == "usage.log" or not os.path.isfile(f):
+            continue   # usage.log is your cost history
+        before = os.path.getsize(f)
+        with open(f, encoding="utf8", errors="replace") as fh:
+            tail = fh.readlines()[-keep:] if keep > 0 else []
+        with open(f, "w", encoding="utf8") as fh:   # truncated in place: `tail -F` in the dashboard keeps following
+            fh.writelines(tail)
+        freed += before - os.path.getsize(f)
+        if before > 4096:
+            rows.append((before, os.path.basename(f)))
+    top = "; ".join(f"`{name}` {human_size(b)}" for b, name in sorted(rows, reverse=True)[:3])
+    return ("Dọn log xong nè 🧹\n\n"
+            f"- **Giải phóng:** {human_size(freed)}" + (f" (lớn nhất: {top})" if top else "") + "\n"
+            + (f"- Mỗi file giữ lại {keep} dòng cuối" if keep > 0 else "- Đã xóa trắng nội dung") + "\n"
+            "- `usage.log` được giữ nguyên (lịch sử chi phí cho `/usage`)")
+
+
 def cmd_auto(args):
     items = [clean_item(l) for l in args.splitlines()]
     items = [i for i in items if i]
@@ -245,8 +358,7 @@ def cmd_auto(args):
         if rc != 0:
             return f"Ối, mình không tạo được nhánh `{stg}` từ `{main}` 😢\n{out}"
     lines = read_board()
-    nums = [int(t["id"][1:]) for t in tasks(lines)]
-    n = max(nums) + 1 if nums else 1
+    n = next_task_number(lines)
     marker = next((i for i, l in enumerate(lines) if l.startswith("## Activity Log")), len(lines))
     new = []
     for title in items:
@@ -901,6 +1013,10 @@ def cmd_inbox(path):
                      "không sửa gì và không tạo task nào hết.")
         else:
             return 5  # the daemon starts a read-only Q&A job (Tech Lead reads, Manager summarizes)
+    elif cmd == "/clear":
+        reply = cmd_clear()
+    elif cmd == "/clearlog":
+        reply = cmd_clearlog(args)
     elif cmd == "/auto":
         if e.get("AUTO_SPLIT") == "claude":
             return 3

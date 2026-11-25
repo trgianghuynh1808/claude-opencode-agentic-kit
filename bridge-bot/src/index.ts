@@ -16,7 +16,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog"]);
 // /newroom runs the `kit` CLI that lives two folders above dist/. API_ROOT / KIT_EXTRA_ARGS exist for the end-to-end test (fake Telegram, --no-start).
 const KIT_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "kit");
 const PROJECTS_DIR = path.resolve(process.env.KIT_PROJECTS_DIR ?? path.join(os.homedir(), "Documents", "projects"));
@@ -235,12 +235,16 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  if (command === "/clear") {   // irreversible by git (the board is not tracked), so ask first
+    await askClear(ctx, room, topicId);
+    return;
+  }
   if (command === "/health") {
     await sendRich(bot.api, ctx.chat.id, await health(room), { message_thread_id: topicId });
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
     return;
   }
   if (command === "/plan" && !m?.[2]?.trim()) {
@@ -260,6 +264,7 @@ bot.on("message:text", async (ctx) => {
 bot.on("callback_query:data", async (ctx) => {
   if (ctx.from.id !== ADMIN_USER_ID) return void (await ctx.answerCallbackQuery());
   if (ctx.callbackQuery.data.startsWith("nr:")) return void (await handleNewRoomButton(ctx));
+  if (ctx.callbackQuery.data.startsWith("cl:")) return void (await handleClearButton(ctx));
   const [action, topic] = ctx.callbackQuery.data.split(":");
   const room = (await loadRooms()).find((r) => r.topicId === Number(topic));
   if (!room || (action !== "ship" && action !== "keep")) return void (await ctx.answerCallbackQuery("Không hợp lệ"));
@@ -267,6 +272,37 @@ bot.on("callback_query:data", async (ctx) => {
   await ctx.answerCallbackQuery(action === "ship" ? "Đã gửi /ship" : "Đã giữ lại");
   await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
 });
+
+// ---------- /clear: confirmation card, then the daemon does the cleaning (idle rooms only) ----------
+const pendingClears = new Map<string, { room: Room; expires: number }>();
+
+async function askClear(ctx: Context, room: Room, topicId: number): Promise<void> {
+  const board = await fs.readFile(path.join(room.path, ".agents", "board.md"), "utf8").catch(() => "");
+  const open = (board.match(/^- \[ \] `T\d+`/gm) ?? []).length;
+  const done = (board.match(/^- \[x\] `T\d+`/gm) ?? []).length;
+  const id = Math.random().toString(36).slice(2, 8);
+  pendingClears.set(id, { room, expires: Date.now() + 10 * 60_000 });
+  const text = [
+    `Mình sắp dọn phòng **${room.name}** nè 🧹`, "",
+    "**Sẽ làm**",
+    `- Reset board: gỡ ${open} task chưa xong và ${done} task đã xong (mình lưu bản sao board trước)`,
+    "- Xóa trạng thái task cũ, tin nhắn cũ và các file hỏi đáp `/plan`", "",
+    "**Không đụng tới:** cấu hình phòng, file plan trong git, ảnh, log và `usage.log`", "",
+    "Nếu phòng đang bận thì mình sẽ từ chối. Bạn xác nhận nhé? 👇",
+  ].join("\n");
+  await sendRich(bot.api, ctx.chat!.id, text, { message_thread_id: topicId, reply_markup: new InlineKeyboard().text("✅ Dọn", `cl:ok:${id}`).text("❌ Huỷ", `cl:no:${id}`) });
+}
+
+async function handleClearButton(ctx: Context): Promise<void> {
+  const [, action, id] = (ctx.callbackQuery?.data ?? "").split(":");
+  const pending = pendingClears.get(id);
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+  pendingClears.delete(id);
+  if (!pending || pending.expires < Date.now()) return void (await ctx.answerCallbackQuery("Yêu cầu đã hết hạn, bạn gõ lại /clear nha"));
+  if (action !== "ok") return void (await ctx.answerCallbackQuery("Đã huỷ"));
+  await writeInbox(pending.room, { from: ctx.from?.id, command: "/clear", args: "", text: "" });
+  await ctx.answerCallbackQuery("Đã gửi /clear");
+}
 
 // ---------- /newroom: create a Topic, set the project up with `kit`, let the three bots say hello ----------
 interface PendingRoom { req: NewRoomRequest; dir: string; existing: boolean; originThread?: number; expires: number }
@@ -503,6 +539,8 @@ if (!DISCOVERY) {
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
     { command: "plan", description: "Hỏi đáp, phân tích project (chỉ đọc, không sửa gì)" },
+    { command: "clear", description: "Dọn board và trạng thái cũ (có xác nhận)" },
+    { command: "clearlog", description: "Dọn log chạy, giữ vài trăm dòng cuối" },
     { command: "newroom", description: "Tạo phòng mới: /newroom <tên> <port>" },
   ];
   for (const scope of [{ type: "default" as const }, { type: "all_group_chats" as const }, { type: "chat" as const, chat_id: CHAT_ID }]) {

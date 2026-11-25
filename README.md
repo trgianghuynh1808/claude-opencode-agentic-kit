@@ -545,6 +545,8 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
 | `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
 | `/plan <question>` | **Plan mode**: ask about the project, analyse an idea, get a plan; Tech Lead reads the code and the Manager sends you one summary. Read-only: no task, no branch, no commit, nothing is changed (see [Plan mode](#plan-mode-plan-ask-without-creating-tasks)) |
+| `/clear` | Housekeeping (asks you to confirm with two buttons, idle rooms only): archives the board to `.agents/board-archive/` (newest 10 kept) and resets it, and deletes per-task state (`status`, `progress`, `queue`), old `inbox`/`outbox` messages, `/plan` Q&A files and `manager.sig`. Task numbers keep going (the next number is computed from the board, the plan files and the `task/*` branches, so branch and plan names are never reused). **Never touched:** `room.env`, plan files in git, screenshots, logs, `usage.log` |
+| `/clearlog [n]` | Truncates `.agents/run.log` and `.agents/logs/*` to their last `n` lines (default 200, `0` empties them); `usage.log` is kept. Idle rooms only. The logs grow forever otherwise (`run.log` of one project reached 3.6 MB) |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
 | `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button |
 | `/newroom <name> <port> [private] [local] [agents]` | Create a Topic `project-<name>` and a whole room (see [Create a room from Telegram](#create-a-room-from-telegram-newroom)); usable in any Topic, even General |
@@ -657,6 +659,7 @@ claude-opencode-agentic-kit/
 │   ├── kit-lib.py                  # helpers of the kit command (registry, CLAUDE.md patch, status table)
 │   ├── test-kit.sh                 # regression test of the kit command
 │   ├── test-plan-mode.sh           # regression test of /plan (read-only Q&A)
+│   ├── test-clear.sh               # regression test of /clear and /clearlog
 │   ├── test-step-report.sh         # one Dev message per step, commit links, push once per step
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty

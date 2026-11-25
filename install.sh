@@ -74,7 +74,7 @@ mkdir -p "$TARGET/.agents/queue" "$TARGET/.agents/status"
 echo ""
 echo ".gitignore:"
 touch "$TARGET/.gitignore"
-for entry in ".agents/board.md" ".agents/room.env" ".agents/kit-dir" ".agents/kit-version" ".agents/watcher.pid" ".agents/plan.pid" ".agents/plan/" ".agents/progress/" ".agents/bin/" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
+for entry in ".agents/board.md" ".agents/room.env" ".agents/kit-dir" ".agents/kit-version" ".agents/watcher.pid" ".agents/plan.pid" ".agents/plan/" ".agents/board-archive/" ".agents/progress/" ".agents/bin/" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
   if grep -qxF "$entry" "$TARGET/.gitignore" || grep -qxF "/$entry" "$TARGET/.gitignore"; then
     echo "  • $entry đã có"
   else
