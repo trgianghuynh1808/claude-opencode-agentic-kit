@@ -11,7 +11,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage"]);
 
 if (!BOT_TOKEN) {
   console.error("Set BOT_TOKEN (see .env.example).");
@@ -208,7 +208,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (m && !command) {
-    await ctx.reply("Lệnh hợp lệ: /auto <checklist>, /status, /stop, /resume, /ship, /health");
+    await ctx.reply("Lệnh hợp lệ: /auto <checklist>, /status, /stop, /resume, /ship, /health, /usage");
     return;
   }
   if (command === "/auto" && !m?.[2]?.trim()) {
@@ -307,6 +307,7 @@ if (!DISCOVERY) {
     { command: "auto", description: "Giao việc: /auto <checklist>, mỗi dòng một task" },
     { command: "status", description: "Xem board và tiến độ" },
     { command: "health", description: "Kiểm tra mọi agent có đang chạy không" },
+    { command: "usage", description: "Token và chi phí các lần gọi Claude" },
     { command: "stop", description: "Tắt AUTO_MODE, dừng nhận task mới" },
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },

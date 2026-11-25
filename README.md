@@ -367,11 +367,11 @@ Optional. Turns the 2-agent kit into three tiers that run unattended, for severa
 
 | Tier | Agent | Runs as | Job |
 |---|---|---|---|
-| Manager | Claude Code | `claude -p` (headless), prompt `.agents/MANAGER.md` | Splits your checklist into tasks on `.agents/board.md`, approves plans (Proxy Approval + guardrails), reports to you, merges to `main` on `/ship` |
-| Tech Lead | Claude Code | `claude -p` (headless), `CLAUDE.md` section AUTO_MODE | Plans, waits for OpenCode, verifies, reviews, squash-merges into `staging` |
+| Manager | Code first, Claude only for judgement | `scripts/room-ops.py` (bash/Python, no AI); `claude -p` with `.agents/MANAGER.md` only when needed | Splits `/auto` into tasks, checks and approves plans (guardrails), reports, ships on `/ship`. Calls Claude only for plans the automatic check is unsure about |
+| Tech Lead | Claude Code | `claude -p` (headless), `CLAUDE.md` section AUTO_MODE | Plans, verifies, reviews, squash-merges into `staging` |
 | Senior Dev | OpenCode | `watch-tasks.sh` → `run-task.sh` | Implements and runs tests, as in the single-project mode |
 
-`scripts/manager-loop.sh` itself is plain bash, not an AI: it reads the state on `board.md` and decides which role to call.
+`scripts/manager-loop.sh` is plain bash, not an AI: it reads the state on `board.md` and decides what to do. Everything mechanical runs in code (`scripts/room-ops.py`), so an idle or routine room costs no Claude quota.
 
 Each project is a **room**: its own `.agents/room.env` (port, topic, branches), its own daemons (tmux/pm2), its own Telegram **Topic**.
 One **bridge bot** (`bridge-bot/`) connects a Telegram Supergroup (Topics enabled) to all rooms through files:
@@ -385,16 +385,19 @@ Telegram Topic #b ─┼─► bridge-bot ◄─ files ─►┤
 
 ### Flow in AUTO_MODE
 
-1. `/auto <checklist>` → Manager writes the tasks as `[pending]` on `board.md` and creates `staging` from `main`.
+1. `/auto <checklist>` → one task per line (bullets and numbers are stripped), written as `[pending]` on `board.md`; `staging` is created from `main`. Set `AUTO_SPLIT="claude"` in `room.env` to let Claude split a free-form request instead.
 2. For each task, the daemon runs one step at a time (state lives on `board.md`):
 
    | State | Who acts | Next state |
    |---|---|---|
-   | `pending` | Tech Lead writes the plan on branch `task/<slug>` (no hand-off yet) | `plan_ready` |
-   | `plan_ready` | Manager checks the guardrails, hands off to OpenCode | `in_progress` (or `BLOCKED`) |
-   | `in_progress` | OpenCode codes; Tech Lead waits, verifies, reviews, fixes (max `MAX_FIX_CYCLES`), squash-merges into `staging` | `done` |
+   | `pending` | Tech Lead (Claude) writes the plan on branch `task/<slug>` (no hand-off yet) | `plan_ready` |
+   | `plan_ready` | Code checks the plan: `OK` → approved and handed off, `BLOCK` → blocked, `REVIEW` → Claude Manager decides | `in_progress` (or `BLOCKED`) |
+   | `in_progress` | The daemon itself waits for OpenCode (reads `.agents/status`); when it is `done` or `stuck`, Tech Lead (Claude) verifies, reviews, fixes (max `MAX_FIX_CYCLES`) and squash-merges into `staging` | `done` |
 
-3. All tasks done → phase `AWAITING_SHIP_APPROVAL`; you get a report with screenshots and a **Ship** button.
+   Plan checks (`room-ops.py check-plan`): **BLOCK** = no steps, touches `.env`, `DROP`/`TRUNCATE`/`DELETE FROM`. **REVIEW** = more than 8 steps, a step without a difficulty label, secrets/credentials, migrations, CI/deploy config, lockfiles, `rm -rf`, no concrete test command. Anything else is approved without calling Claude.
+   The plan check does not compare the plan with the task title (that needs judgement); keep tasks small and check the plan in the log if a task is risky.
+
+3. All tasks done → phase `AWAITING_SHIP_APPROVAL`; you get a report (tasks, Verify results, commits, screenshots) and a **Ship** button, built by code.
 4. `/ship` merges `staging` into `main` and pushes. Nothing reaches `main` without it.
 
 **Fresh context per call.** Every `claude -p` call is a new process with an empty context window. State is passed through files
@@ -406,7 +409,7 @@ OpenCode is different: it continues one session across the steps of a task (see 
 - Guardrails block plans that touch `.env`/secrets/CI config, destructive migrations, or drift from the task.
 - Only `ADMIN_USER_ID` in `TELEGRAM_CHAT_ID` is obeyed; screenshots are only sent from inside the room directory.
 - The daemon runs `claude -p ... --dangerously-skip-permissions` (override with `CLAUDE_FLAGS`). The Manager's "no application code" rule is a prompt instruction, not enforced by the system. Run rooms only on projects and machines you trust.
-- Quota: a task costs about 3 Claude calls (plan, approve, verify + review + merge); OpenCode does the heavy coding. An idle daemon costs nothing.
+- Quota: see [Claude quota](#claude-quota) below.
 
 ### First-time setup (once per machine)
 
@@ -460,10 +463,11 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 | Command | Effect |
 |---|---|
-| `/auto <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command only gets an answer |
+| `/auto <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command gets a canned reply (no Claude call) |
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
+| `/usage` | Tokens, turns and list-price cost of the Claude calls today, per role, plus the last 5 calls (from `.agents/logs/usage.log`) |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
 | `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`); also the **Ship** button |
 
@@ -487,14 +491,28 @@ window dashboard                      window manager
 `tmux ls` lists sessions (`agent-bridge`, `room-<name>`); `tmux attach -t room-<name>`; `Ctrl+B` then `0`/`1` switches window,
 `Ctrl+B` then `D` detaches without stopping anything. Mouse is on.
 
-Logs in `.agents/logs/`: `activity.log` (merged, timestamped, coloured by role) and `manager.log` / `techlead.log` (full output of each call).
-`claude -p` prints only when a call finishes, so the log can stay quiet for minutes while Claude works.
+Logs in `.agents/logs/`: `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `usage.log` (tokens and cost per call), `ops.log` (code errors).
+`claude -p` prints only when a call finishes, so the log can stay quiet for minutes while Claude works. While OpenCode codes, the daemon is waiting and the log is quiet by design.
 
 ### `.agents/room.env`
 
-`PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`.
+`PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`).
+Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
+
+### Claude quota
+
+A task costs about two Claude calls (Tech Lead plan, Tech Lead verify/review/merge), plus one more per fix cycle; OpenCode does the heavy coding.
+Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode: light` unless a task needs `full`. What keeps the cost down:
+
+- **Mechanical work is code, not AI:** `/status`, `/stop`, `/resume`, `/ship`, `/usage`, plain-text replies, `/auto` splitting, plan checks, the ship report. A room with nothing to do costs nothing.
+- **The daemon waits for OpenCode**, not Claude: Tech Lead is called again only when OpenCode is `done` or `stuck`, with a fresh context.
+- **Model per role** in `.agents/room.env`: `MODEL_MANAGER`, `MODEL_TECHLEAD` (`haiku`, `sonnet`, `opus` or a full id; empty = the CLI default).
+- **Turn cap per call:** `MAX_TURNS_MANAGER` (20), `MAX_TURNS_TECHLEAD` (150); a call that hits it fails instead of running on.
+- **Measure:** every call is appended to `.agents/logs/usage.log` (JSON lines: role, label, model, turns, tokens, cost). `/usage` summarizes it. The dollar figure is the API list price, useful to compare steps, not your subscription quota.
+- `CHAT_WITH_CLAUDE="true"` lets Claude answer plain text (costs quota); the default replies with a canned help text.
 
 ### Troubleshooting (multi-room)
 
@@ -524,6 +542,7 @@ claude-opencode-agentic-kit/
 │   ├── manager-loop.sh             # multi-room: Manager daemon (inbox, board, Tech Lead dispatch)
 │   ├── agent-room.sh               # multi-room: init | start | stop | status for a project room
 │   ├── board-view.sh               # multi-room: board pane of the tmux dashboard (redraws only on change)
+│   ├── room-ops.py                 # multi-room: deterministic commands, plan checks, ship, usage log (no AI)
 │   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
 │   └── notify.sh                   # desktop notification
 ├── tools/                          # kit maintenance only (not installed into projects)

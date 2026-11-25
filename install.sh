@@ -56,6 +56,7 @@ copy_always scripts/room-env.sh    scripts/room-env.sh
 copy_always scripts/manager-loop.sh scripts/manager-loop.sh
 copy_always scripts/agent-room.sh  scripts/agent-room.sh
 copy_always scripts/board-view.sh  scripts/board-view.sh
+copy_always scripts/room-ops.py    scripts/room-ops.py
 chmod +x "$TARGET"/scripts/*.sh
 copy_always prompts/MANAGER.md     .agents/MANAGER.md
 mkdir -p "$TARGET/.agents"
