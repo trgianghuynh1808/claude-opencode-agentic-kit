@@ -7,6 +7,8 @@
 #   kit status [--all]                         bảng tình trạng mọi phòng (--all: thêm project dùng kit mà chưa có phòng)
 #   kit scan [thư mục]                         quét tìm mọi project có dấu vết của kit, kể cả chưa đăng ký
 #   kit remove <tên|đường dẫn>                 dừng phòng và gỡ khỏi bridge (giữ nguyên file)
+#   kit attach [tên]                           mở tmux của phòng (tên gõ một phần là đủ, vd "tea"; Ctrl+B rồi D để thoát mà không dừng phòng)
+#   kit logs [tên]                             xem trực tiếp activity.log của phòng (Ctrl+C để thoát, không dừng phòng)
 #
 # Cờ chung:  --topic N  --port P  --name TÊN  --agents (nhờ Claude soạn nháp AGENTS.md)  --no-start  --yes
 # Cờ của upgrade: --no-bridge (không restart bridge)
@@ -57,7 +59,7 @@ parse_args() {
   done
 }
 
-usage() { sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,17p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 confirm() {   # câu hỏi
   (( YES )) && return 0
@@ -311,6 +313,43 @@ cmd_remove() {
   echo "  Muốn gỡ hẳn kit khỏi project: xoá thư mục .agents/ và các file scripts/ của kit."
 }
 
+# ---------- kit attach / logs ----------
+find_room() {   # [phần tên] → in "tên<TAB>đường dẫn"; chỉ có một phòng thì không cần tên
+  local q="${1:-}" rows row n
+  rows="$(python3 "$LIB" rooms)"
+  [[ -n "$rows" ]] || die "Chưa có phòng nào đăng ký (kit new / kit add)."
+  if [[ -z "$q" ]]; then
+    [[ "$(wc -l <<<"$rows" | tr -d ' ')" == 1 ]] || { echo "Có nhiều phòng, chọn một:" >&2; cut -f1 <<<"$rows" | sed 's/^/  /' >&2; exit 1; }
+    head -1 <<<"$rows"; return
+  fi
+  row="$(awk -F'\t' -v q="$q" '$1==q' <<<"$rows")"
+  [[ -n "$row" ]] || row="$(awk -F'\t' -v q="$q" 'index(tolower($1), tolower(q))' <<<"$rows")"
+  n="$(grep -c . <<<"$row" || true)"
+  (( n == 1 )) || { [[ $n -eq 0 ]] && echo "Không thấy phòng nào khớp '$q'. Các phòng:" >&2 || echo "'$q' khớp nhiều phòng:" >&2; cut -f1 <<<"${row:-$rows}" | sed 's/^/  /' >&2; exit 1; }
+  echo "$row"
+}
+
+cmd_attach() {
+  local row name
+  row="$(find_room "${1:-}")" || exit 1; name="$(cut -f1 <<<"$row")"
+  if tmux has-session -t "room-$name" 2>/dev/null; then
+    echo "${D}Thoát mà không dừng phòng: Ctrl+B rồi D (đừng gõ exit hay Ctrl+C trong pane)${X}"
+    if [[ -n "${TMUX:-}" ]]; then exec tmux switch-client -t "room-$name"; else exec tmux attach -t "room-$name"; fi
+  fi
+  if command -v pm2 >/dev/null 2>&1 && pm2 describe "room-$name-manager" >/dev/null 2>&1; then
+    echo "${D}Phòng chạy bằng pm2, xem log (Ctrl+C để thoát, không dừng phòng)${X}"; exec pm2 logs "room-$name-manager"
+  fi
+  die "Phòng '$name' không chạy. Bật lại: cd $(cut -f2 <<<"$row") && scripts/agent-room.sh start"
+}
+
+cmd_logs() {
+  local row path log
+  row="$(find_room "${1:-}")" || exit 1; path="$(cut -f2 <<<"$row")"; log="$path/.agents/logs/activity.log"
+  [[ -f "$log" ]] || die "Chưa có log: $log"
+  echo "${D}Xem trực tiếp $log (Ctrl+C để thoát, phòng vẫn chạy)${X}"
+  exec tail -n 40 -f "$log"
+}
+
 # ---------- điều phối ----------
 case "${1:-}" in
   new)       shift; cmd_new "$@" ;;
@@ -319,6 +358,8 @@ case "${1:-}" in
   status)    shift; cmd_status "$@" ;;
   scan)      shift; cmd_scan "$@" ;;
   remove)    shift; cmd_remove "$@" ;;
+  attach)    shift; cmd_attach "$@" ;;
+  logs)      shift; cmd_logs "$@" ;;
   -h|--help|help|"") usage ;;
-  *) die "Lệnh lạ: $1. Dùng: new | add | upgrade | status | scan | remove (kit --help)" ;;
+  *) die "Lệnh lạ: $1. Dùng: new | add | upgrade | status | scan | remove | attach | logs (kit --help)" ;;
 esac

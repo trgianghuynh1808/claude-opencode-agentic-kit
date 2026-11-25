@@ -113,6 +113,8 @@ ln -s ~/Documents/projects/claude-opencode-kit/kit ~/.local/bin/kit
 | `kit upgrade [name]` | Updates the kit in every registered room (or one). A room is skipped, with the reason, when it is busy (AUTO_MODE on, OpenCode running, a task in progress) or its git tree is dirty. An idle running room is stopped, updated, committed and started again; a stopped room stays stopped. The bridge is restarted once at the end (`--no-bridge` to skip) |
 | `kit status` | One table: every room, running or not, AUTO_MODE, the task in progress and the kit version it runs (flagged when behind) |
 | `kit scan [folder]` | Scans your projects folder (default `~/Documents/projects`) for every project that carries kit files, registered or not, with its kit version and the command to fix it: a legacy install with no room gets a `kit add …` hint. `kit status --all` shows the same list under the rooms table |
+| `kit attach [name]` | Opens the room's tmux session (`room-<name>`); a part of the name is enough (`kit attach tea`), and no name is needed with a single room. Leave with `Ctrl+B` then `D`: typing `exit` or `Ctrl+C` in the pane stops the room. Rooms run by pm2 show their log instead |
+| `kit logs [name]` | `tail -f` of the room's `.agents/logs/activity.log` (coloured by role); `Ctrl+C` only stops the viewing, never the room |
 | `kit remove <name>` | Stops a room and removes it from the bridge; the project files are left alone |
 
 Common flags: `--agents` asks Claude once to **draft `AGENTS.md`** from the repo (committed separately as `docs: draft AGENTS.md (review before use)`: read it before the first task),
