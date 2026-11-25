@@ -16,7 +16,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog", "approve", "reject", "revise"]);
 // /newroom runs the `kit` CLI that lives two folders above dist/. API_ROOT / KIT_EXTRA_ARGS exist for the end-to-end test (fake Telegram, --no-start).
 const KIT_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "kit");
 const PROJECTS_DIR = path.resolve(process.env.KIT_PROJECTS_DIR ?? path.join(os.homedir(), "Documents", "projects"));
@@ -33,7 +33,7 @@ const DISCOVERY = !ADMIN_USER_ID || !CHAT_ID || !Number.isFinite(ADMIN_USER_ID) 
 
 interface Room { topicId: number; name: string; path: string }
 type Role = "manager" | "techlead" | "dev";
-interface OutboxMessage { text?: string; images?: string[]; requires?: string; from?: Role }
+interface OutboxMessage { text?: string; images?: string[]; requires?: string; from?: Role; task?: string }
 
 const ROLE_LABEL: Record<Role, string> = { manager: "🧭 Manager", techlead: "🛠 Tech Lead", dev: "⌨️ Senior Dev" };
 
@@ -248,6 +248,10 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  if (command === "/revise" && !m?.[2]?.trim()) {
+    await sendRich(bot.api, ctx.chat.id, "Bạn muốn sửa gì ở plan nè? ✏️\nCách dùng: `/revise <góp ý>`", { message_thread_id: topicId });
+    return;
+  }
   if (command === "/clear") {   // irreversible by git (the board is not tracked), so ask first
     await askClear(ctx, room, topicId);
     return;
@@ -257,7 +261,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
     return;
   }
   if (command === "/plan" && !m?.[2]?.trim()) {
@@ -278,6 +282,7 @@ bot.on("callback_query:data", async (ctx) => {
   if (ctx.from.id !== ADMIN_USER_ID) return void (await ctx.answerCallbackQuery());
   if (ctx.callbackQuery.data.startsWith("nr:")) return void (await handleNewRoomButton(ctx));
   if (ctx.callbackQuery.data.startsWith("cl:")) return void (await handleClearButton(ctx));
+  if (ctx.callbackQuery.data.startsWith("pl:")) return void (await handlePlanButton(ctx));
   const [action, topic] = ctx.callbackQuery.data.split(":");
   const room = (await loadRooms()).find((r) => r.topicId === Number(topic));
   if (!room || (action !== "ship" && action !== "keep")) return void (await ctx.answerCallbackQuery("Không hợp lệ"));
@@ -285,6 +290,21 @@ bot.on("callback_query:data", async (ctx) => {
   await ctx.answerCallbackQuery(action === "ship" ? "Đã gửi /ship" : "Đã giữ lại");
   await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
 });
+
+// ---------- plan card buttons: Duyệt / Sửa plan / Hủy ----------
+async function handlePlanButton(ctx: Context): Promise<void> {
+  const [, action, topic, task] = (ctx.callbackQuery?.data ?? "").split(":");
+  const room = (await loadRooms()).find((r) => r.topicId === Number(topic));
+  if (!room || !/^T\d+$/.test(task ?? "")) return void (await ctx.answerCallbackQuery("Không hợp lệ"));
+  if (action === "edit") {   // keep the buttons: the user can still approve after asking for a change
+    await ctx.answerCallbackQuery("Gõ /revise kèm góp ý nhé");
+    await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\nGõ \`/revise <góp ý>\`, ví dụ: \`/revise tách bước 2 thành hai bước nhỏ hơn\``, { message_thread_id: room.topicId });
+    return;
+  }
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+  await writeInbox(room, { from: ctx.from?.id, command: action === "ok" ? "/approve" : "/reject", args: task, text: "" });
+  await ctx.answerCallbackQuery(action === "ok" ? "Đã duyệt plan" : "Đã hủy task");
+}
 
 // ---------- /clear: confirmation card, then the daemon does the cleaning (idle rooms only) ----------
 const pendingClears = new Map<string, { room: Room; expires: number }>();
@@ -486,7 +506,9 @@ async function sendOutbox(room: Room, msg: OutboxMessage): Promise<void> {
 
   const keyboard = msg.requires === "APPROVE_SHIP"
     ? new InlineKeyboard().text("✅ Ship", `ship:${room.topicId}`).text("⏸ Giữ lại", `keep:${room.topicId}`)
-    : undefined;
+    : msg.requires === "APPROVE_PLAN" && msg.task
+      ? new InlineKeyboard().text("✅ Duyệt", `pl:ok:${room.topicId}:${msg.task}`).text("✏️ Sửa plan", `pl:edit:${room.topicId}:${msg.task}`).text("❌ Hủy", `pl:no:${room.topicId}:${msg.task}`)
+      : undefined;
 
   const parts = chunk(`${title}\n${msg.text ?? ""}`);
   for (let i = 0; i < parts.length; i++) {
@@ -553,6 +575,9 @@ if (!DISCOVERY) {
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
     { command: "plan", description: "Hỏi đáp, phân tích project (chỉ đọc, không sửa gì)" },
+    { command: "approve", description: "Duyệt plan đang chờ" },
+    { command: "revise", description: "Nhờ Tech Lead sửa plan: /revise <góp ý>" },
+    { command: "reject", description: "Hủy plan đang chờ" },
     { command: "clear", description: "Dọn board và trạng thái cũ (có xác nhận)" },
     { command: "clearlog", description: "Dọn log chạy, giữ vài trăm dòng cuối" },
     { command: "newroom", description: "Tạo phòng mới: /newroom <tên> <port>" },

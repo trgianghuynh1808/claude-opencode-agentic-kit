@@ -7,7 +7,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export AGENT_ROOMS_FILE="$T/rooms.json"
 P="$T/proj"; mkdir -p "$P"; git -C "$P" init -q -b main; git -C "$P" config user.email t@t; git -C "$P" config user.name t
 echo a > "$P/a"; git -C "$P" add -A; git -C "$P" commit -qm init
-"$KIT/install.sh" "$P" >/dev/null 2>&1; (cd "$P" && scripts/agent-room.sh init --topic 5 --port 4000 >/dev/null); git -C "$P" add -A; git -C "$P" commit -qm kit
+"$KIT/install.sh" "$P" >/dev/null 2>&1; (cd "$P" && scripts/agent-room.sh init --topic 5 --port 4000 >/dev/null); sed -i.bak 's/^PLAN_APPROVAL=.*/PLAN_APPROVAL="auto"/' "$P/.agents/room.env"; rm -f "$P/.agents/room.env.bak"; git -C "$P" add -A; git -C "$P" commit -qm kit
 git init -q --bare "$T/remote.git"
 git -C "$P" remote add origin https://github.com/test/repo.git            # what links are built from
 git -C "$P" config remote.origin.pushurl "$T/remote.git"                  # where pushes really go

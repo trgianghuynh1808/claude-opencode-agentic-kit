@@ -546,6 +546,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
 | `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
+| `/approve [Tn]` · `/revise <feedback>` · `/reject [Tn]` | Answer the **plan card** (below) without the buttons: approve the plan waiting for you, ask the Tech Lead to change it, or cancel the task. `Tn` is optional when only one plan is waiting |
 | `/plan <question>` | **Plan mode**: ask about the project, analyse an idea, get a plan; Tech Lead reads the code and the Manager sends you one summary. Read-only: no task, no branch, no commit, nothing is changed (see [Plan mode](#plan-mode-plan-ask-without-creating-tasks)) |
 | `/clear` | Housekeeping (asks you to confirm with two buttons, idle rooms only): archives the board to `.agents/board-archive/` (newest 10 kept) and resets it, and deletes per-task state (`status`, `progress`, `queue`), old `inbox`/`outbox` messages, `/plan` Q&A files and `manager.sig`. Task numbers keep going (the next number is computed from the board, the plan files and the `task/*` branches, so branch and plan names are never reused). **Never touched:** `room.env`, plan files in git, screenshots, logs, `usage.log` |
 | `/clearlog [n]` | Truncates `.agents/run.log` and `.agents/logs/*` to their last `n` lines (default 200, `0` empties them); `usage.log` is kept. Idle rooms only. The logs grow forever otherwise (`run.log` of one project reached 3.6 MB) |
@@ -563,6 +564,8 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 - Task plan files in `.agents/tasks/` are kept: they are part of the repository history.
 
 Fresh context is automatic: every Tech Lead call is a new `claude -p` process (no `/clear` needed), and OpenCode only continues a session between step groups of the same task.
+
+**Plan approval card.** When the Tech Lead has written a plan, you get **one card with the whole plan**: goals and decisions made, every step with its difficulty (and how many of each), the test cases (names only), the files it will touch, the Verify mode and what the automatic check found. Three buttons: **✅ Duyệt** (the plan is committed as `APPROVED_BY_USER` and handed to OpenCode), **✏️ Sửa plan** (type `/revise <góp ý>`: the Tech Lead edits the plan on its branch according to your feedback, committed as `plan(rev-N)`, and you get a new card) and **❌ Hủy** (the task is cancelled; its branch is kept). While it waits, the task is in state `awaiting_plan` and **nothing costs anything** (no Claude call, no OpenCode). A plan the automatic check **blocks** (for example it touches `.env`) gets the same card without buttons and is blocked as before. Set `PLAN_APPROVAL="auto"` in `.agents/room.env` for the previous hands-off behaviour (same card, no buttons, the daemon checks and approves by itself). `tools/test-plan-approval.sh` covers it.
 
 **Notes for the approver (`Lưu ý`).** The agents are told to write a line starting with `Lưu ý:` (or `Cảnh báo:`) in "Trạng thái hiện tại" (or in an optional `## Lưu ý` section of the task file) whenever the approver should know something: a deviation from the plan, something left untested or tested less than the goal, a known bug (even a test marked `test.fail`), a follow-up, a non-blocking review finding. The daemon relays only explicit markers, plus the "Đã thử mà không được" section; nothing is guessed. They appear as a **Lưu ý** section in the Dev step report (new notes only, riding along with the next finished step), in the Tech Lead's end-of-task report (all notes of the task) and in the ship approval card ("Lưu ý cần xem trước khi duyệt", and `⚠️ N lưu ý` on the task line).
 
@@ -615,7 +618,7 @@ Logs in `.agents/logs/` (progress messages are not logged, they go straight to T
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
-`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `PLAN_APPROVAL` (`ask`|`auto`), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
 Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
@@ -673,6 +676,7 @@ claude-opencode-agentic-kit/
 │   ├── test-step-report.sh         # one Dev message per step, commit links, push once per step
 │   ├── test-techlead-report.sh     # one Tech Lead report per task, pictures sent once
 │   ├── test-notes.sh               # Lưu ý, ship-card checks, review notes, non-silent notices
+│   ├── test-plan-approval.sh       # plan card, /approve /revise /reject, auto mode, daemon waiting
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
