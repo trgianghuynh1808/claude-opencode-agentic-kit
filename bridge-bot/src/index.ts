@@ -300,6 +300,21 @@ if (!DISCOVERY) setInterval(async () => {
 }, POLL_MS);
 
 bot.catch((err) => console.error("bot error:", err.message));
+
+// Register the command menu shown when typing "/" (only the main bot receives commands).
+if (!DISCOVERY) {
+  const menu = [
+    { command: "auto", description: "Giao việc: /auto <checklist>, mỗi dòng một task" },
+    { command: "status", description: "Xem board và tiến độ" },
+    { command: "health", description: "Kiểm tra mọi agent có đang chạy không" },
+    { command: "stop", description: "Tắt AUTO_MODE, dừng nhận task mới" },
+    { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
+    { command: "ship", description: "Merge staging vào main và push" },
+  ];
+  for (const scope of [{ type: "default" as const }, { type: "all_group_chats" as const }, { type: "chat" as const, chat_id: CHAT_ID }]) {
+    bot.api.setMyCommands(menu, { scope }).catch((err) => console.error("setMyCommands failed:", (err as Error).message));
+  }
+}
 console.log(`ADMIN_USER_ID=${ADMIN_USER_ID} TELEGRAM_CHAT_ID=${CHAT_ID}`);
 console.log(`Identities: manager=main, techlead=${process.env.BOT_TOKEN_TECHLEAD ? "own bot" : "main bot (label)"}, dev=${process.env.BOT_TOKEN_DEV ? "own bot" : "main bot (label)"}`);
 console.log(DISCOVERY ? "Discovery mode: send any message in the group/Topic to get the ids." : `Bridge bot up. Rooms file: ${ROOMS_FILE}`);
