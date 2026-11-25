@@ -11,6 +11,8 @@ const cases = [
   ["1. giữ nguyên số", "1. giữ nguyên số"],
   ["**a** và **b**", "<b>a</b> và <b>b</b>"],
   ["**Nhánh `staging`** xong", "Nhánh <code>staging</code> xong"],
+  ["- [abc1234](https://github.com/o/r/commit/abc1234) fix a & b", '• <a href="https://github.com/o/r/commit/abc1234">abc1234</a> fix a &amp; b'],
+  ["[x](javascript:alert(1))", "[x](javascript:alert(1))"],
 ];
 let bad = 0;
 for (const [i, want] of cases) { const got = toHtml(i); const ok = got === want; if (!ok) bad++; console.log(ok ? "ok  " : "FAIL", JSON.stringify(i), ok ? "" : `-> ${got}`); }

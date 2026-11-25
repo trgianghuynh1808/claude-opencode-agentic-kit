@@ -29,6 +29,7 @@ export function toHtml(text: string): string {
     line = line.replace(/`([^`\n]+)`/g, (_m, c: string) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
     // Telegram may reject <code> nested inside <b>, so a bold span that contains code is rendered without the bold.
     line = line.replace(/\*\*([^*\n]+)\*\*/g, (_m, inner: string) => (inner.includes("\u0000") ? inner : `<b>${inner}</b>`));
+    line = line.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)"<>]+)\)/g, '<a href="$2">$1</a>');   // [text](url)
     return line.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => `<code>${codes[Number(i)]}</code>`);
   }).join("\n");
 }

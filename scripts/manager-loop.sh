@@ -85,8 +85,8 @@ line_slug()  { sed -nE 's/.*\(slug: `([^`]+)`\).*/\1/p' <<<"$1"; }
 has_done()   { grep -qE '^- \[x\] `T[0-9]+` \[done\]' "$BOARD" 2>/dev/null; }
 watcher_alive() { [[ -f "$AG/watcher.pid" ]] && kill -0 "$(cat "$AG/watcher.pid" 2>/dev/null)" 2>/dev/null; }
 
-report_progress() {   # slug — báo tiến độ (bước, test, verify, vòng sửa, merge) đọc từ file task và git, không tốn Claude
-  python3 "$OPS" progress "$1" >/dev/null 2>>"$LOGDIR/ops.log" || true
+report_progress() {   # slug [--flush] — báo tiến độ (bước, test, verify, vòng sửa, merge) đọc từ file task và git, không tốn Claude
+  python3 "$OPS" progress "$@" >/dev/null 2>>"$LOGDIR/ops.log" || true
 }
 
 # Biến tạm cho một lần gọi:  CUR_SLUG=<slug> báo tiến độ trong lúc Tech Lead làm việc · RC_TOOLS="Read,Grep,Glob" chỉ cho các công cụ này
@@ -125,7 +125,7 @@ run_claude() { # vai(manager|techlead) prompt [nhãn]
   if [[ -n "$PROGRESS_PID" ]]; then
     pkill -P "$PROGRESS_PID" 2>/dev/null; kill "$PROGRESS_PID" 2>/dev/null; wait "$PROGRESS_PID" 2>/dev/null
     PROGRESS_PID=""
-    report_progress "$CUR_SLUG"   # lần cuối: bắt những gì xảy ra sau lượt kiểm tra cuối cùng
+    report_progress "$CUR_SLUG" --flush   # lần cuối: bắt những gì xảy ra sau lượt kiểm tra cuối cùng
   fi
   text="$(printf '%s' "$raw" | python3 "$OPS" claude-result "$role" "$label" "$model")"; prc=$?
   LAST_TEXT="$text"
@@ -338,6 +338,7 @@ tick_auto() {
       st=""; [[ -n "$plan" ]] && st="$AG/status/$(basename "$plan" .md).status"
       st_state="none"; st_ts=0
       [[ -n "$st" && -f "$st" ]] && read -r st_state st_ts < "$st"
+      case "$st_state" in done|stuck) report_progress "$slug" --flush ;; esac   # OpenCode xong: gửi nốt phần còn lại
       case "$st_state" in
         queued|running)
           # Daemon tự chờ OpenCode; chỉ báo động nếu job nằm 'queued' lâu mà watcher đã chết

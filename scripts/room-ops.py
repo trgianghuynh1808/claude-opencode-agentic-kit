@@ -280,6 +280,11 @@ def cleanup_after_ship(lines, keep):
                 os.remove(pf); n_prog += 1
         if n_status or n_prog:
             out.append(f"{n_status} status, {n_prog} progress")
+        if read_env().get("COMMIT_LINKS", "true") == "true" and repo_web_url():
+            gone = sum(1 for t in shipped if git("ls-remote", "--heads", "origin", f"task/{t['slug']}")[1].strip()
+                       and git_remote_cmd("push", "-q", "origin", "--delete", f"task/{t['slug']}"))
+            if gone:
+                out.append(f"{gone} nhánh task trên GitHub")
         # 2. verification screenshots -> archive/<stamp>/, keep the last 3 batches
         # never move files git tracks: that would leave deleted tracked files and a dirty tree (hand-off needs a clean one)
         tracked = set(git("ls-files", f"{AG}/screenshots")[1].splitlines())
@@ -572,7 +577,86 @@ def screenshots():
     return sorted({f for f in files if "/archive/" not in f}, key=os.path.getmtime)
 
 
-def cmd_progress(slug):
+SETTLE_S = 8   # a step is reported only after its task file has been quiet this long, so the commit and test results are in
+
+
+def repo_web_url():
+    """https://github.com/owner/repo from the origin remote, or '' when it is not a GitHub repo."""
+    rc, out = git("remote", "get-url", "origin")
+    m = re.match(r"(?:https://(?:[^@/]+@)?github\.com/|git@github\.com:)([^/]+/[^/]+?)(?:\.git)?/?$", out.strip()) if rc == 0 else None
+    return f"https://github.com/{m.group(1)}" if m else ""
+
+
+def git_remote_cmd(*args, timeout=40):
+    """git talking to the remote: never prompts for a password and never hangs the daemon."""
+    try:
+        p = subprocess.run(["git", *args], capture_output=True, text=True, timeout=timeout,
+                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+        return p.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def push_task_branch(slug, st):
+    """Push task/<slug> so the commit links in the report open on GitHub. Returns True when the links will work."""
+    if read_env().get("COMMIT_LINKS", "true") != "true" or not repo_web_url():
+        return False
+    if time.time() < st.get("push_retry_at", 0):
+        return False
+    if git_remote_cmd("push", "-q", "origin", f"task/{slug}"):
+        return True
+    st["push_retry_at"] = time.time() + 600   # offline or no rights: do not retry on every tick
+    return False
+
+
+def step_models(slug):
+    """step number -> model last used for it (run-task.sh appends '<step> <model>' lines)."""
+    out = {}
+    try:
+        with open(f"{PROGRESS_DIR}/{slug}.models", encoding="utf8") as f:
+            for line in f:
+                n, _, m = line.strip().partition(" ")
+                if n.isdigit() and m:
+                    out[int(n)] = m
+    except OSError:
+        pass
+    return out
+
+
+def plan_mtime(slug):
+    p = plan_path(slug)
+    return os.path.getmtime(p) if p and os.path.exists(p) else 0
+
+
+def step_report(slug, total, done_steps, commits, changed, linked):
+    """ONE message for finished step(s): description with difficulty and model, commits (linked), test results."""
+    models, base = step_models(slug), repo_web_url()
+    nums = ", ".join(str(x[0]) for x in done_steps)
+    out = [f"✅ **Bước {nums}/{total}** xong rồi nè!" if len(done_steps) == 1 else
+           f"✅ **Bước {nums}/{total}** xong hết rồi nè!" if done_steps else "📝 **Phần còn lại** của task"]
+    if done_steps:
+        out += ["", "**Mô tả**"]
+        for n, _, label, txt in done_steps:
+            model = models.get(n, "").split("/")[-1]
+            out.append(f"- **Bước {n}** · mức **{label or 'vừa'}**" + (f" · model `{model}`" if model else ""))
+            out.append(f"  {short(txt, 200)}")
+    out += ["", "**Commit**"]
+    if commits:
+        for h, sub in commits[:8]:
+            out.append(f"- [{h}]({base}/commit/{h}) {short(sub, 90)}" if linked and base else f"- `{h}` {short(sub, 90)}")
+        if len(commits) > 8:
+            out.append(f"- … và {len(commits) - 8} commit nữa")
+    else:
+        out.append("- Bước này chưa có commit mới")
+    out += ["", "**Kết quả test**"]
+    if changed:
+        out += [f"- {k} {'✅ PASS' if v == 'PASS' else '❌ FAIL'}" for k, v in changed]
+    else:
+        out.append("- Bước này chưa có test nào đổi kết quả")
+    return "\n".join(out)
+
+
+def cmd_progress(slug, flush=False):
     lines = read_board()
     t = next((t for t in tasks(lines) if t["slug"] == slug), None)
     if not t:
@@ -626,30 +710,17 @@ def cmd_progress(slug):
         st["plan"] = True
         sent += 1
 
-    # B. Senior Dev: steps finished + commits
-    new_steps = [x for x in steps if x[1] and x[0] not in st["steps"]]
+    # B+C. Senior Dev: ONE report per finished step (description, commits, tests). Nothing is sent for a lone commit or a lone
+    # test result: it waits for the step it belongs to (or for `flush`, when OpenCode is done), so messages never come in bursts.
+    done_steps = [x for x in steps if x[1] and x[0] not in st["steps"]]
     new_commits = [c for c in dev_commits if c[0] not in st["commits"]]
-    if new_steps or new_commits:
-        if new_steps:
-            nums = ", ".join(str(x[0]) for x in new_steps)
-            body = [f"✅ **Bước {nums}/{total}** xong rồi nè!" if len(new_steps) == 1 else f"✅ **Bước {nums}/{total}** xong hết rồi nè!"]
-            for n, _, label, txt in new_steps:
-                body.append(f"- {short(txt, 100)}")
-        else:
-            body = ["📝 Mình vừa commit thêm chút xíu"]
-        for h, sub in new_commits[:3]:
-            body.append(f"- commit `{h}` {short(sub, 80)}")
-        if len(new_commits) > 3:
-            body.append(f"- … và {len(new_commits) - 3} commit nữa")
-        emit("dev", "\n".join(body))
-        st["steps"] += [x[0] for x in new_steps]
-        st["commits"] += [c[0] for c in new_commits]
-        sent += 1
-
-    # C. Senior Dev: test results
     changed = [(k, v) for k, v in tests.items() if v in ("PASS", "FAIL") and st["tests"].get(k) != v]
-    if changed:
-        emit("dev", "🧪 **Kết quả test**\n" + "\n".join(f"- {k} {'✅ PASS' if v == 'PASS' else '❌ FAIL'}" for k, v in changed))
+    settled = flush or (time.time() - plan_mtime(slug) >= SETTLE_S)
+    if (done_steps and settled) or (flush and (new_commits or changed)):
+        linked = push_task_branch(slug, st) if new_commits else False
+        emit("dev", step_report(slug, total, done_steps, new_commits, changed, linked))
+        st["steps"] += [x[0] for x in done_steps]
+        st["commits"] += [c[0] for c in new_commits]
         st["tests"].update(dict(changed))
         sent += 1
 
@@ -881,7 +952,7 @@ def main(argv):
         print(simple[c]())
         return 0
     if c == "progress":
-        print(cmd_progress(a[0]))
+        print(cmd_progress(a[0], "--flush" in a[1:]))
         return 0
     if c == "plan-path":
         print(plan_path(a[0]))

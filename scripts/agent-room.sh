@@ -69,6 +69,8 @@ MODEL_TECHLEAD=""
 # Giới hạn số lượt mỗi lần gọi (chặn một lần chạy lạc đốt quota)
 MAX_TURNS_MANAGER="20"
 MAX_TURNS_TECHLEAD="150"
+# Tin báo bước của Dev kèm link commit trên GitHub: daemon sẽ git push nhánh task lên origin (xóa sau /ship). "false" = không push, không link
+COMMIT_LINKS="true"
 # Chế độ /plan (Tech Lead đọc repo để trả lời câu hỏi): giới hạn số lượt
 MAX_TURNS_PLAN="40"
 # /auto tách task: "lines" (mỗi dòng một task, không tốn Claude) hoặc "claude" (Manager tách)

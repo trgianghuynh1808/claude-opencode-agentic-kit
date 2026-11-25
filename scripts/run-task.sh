@@ -430,8 +430,11 @@ while (( runs < MAX_RUNS )); do
 
   if [[ "$first_step" == "$failed_step" ]]; then
     say_dev_steps "Bước **$range/$total** hơi khó nhằn, mình gọi model mạnh hơn hỗ trợ nha 💪 mức **${LABELS[$level]}** · model \`${model#opencode-go/}\`" "${batch_lines[@]}"
-  else
-    say_dev_steps "Đang cày **bước $range/$total** nè 🔧 mức **${LABELS[$level]}** · model \`${model#opencode-go/}\`" "${batch_lines[@]}"
+  fi
+  # Không gửi tin "bắt đầu bước": mỗi bước chỉ báo MỘT lần lúc xong (room-ops.py progress). Ghi lại model để tin đó nêu được.
+  if [[ -f .agents/room.env ]]; then
+    mkdir -p .agents/progress
+    for s in "${batch_steps[@]}"; do echo "$s $model" >> ".agents/progress/$(basename "$TASK" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//').models"; done
   fi
 
   prompt="Đọc AGENTS.md và $TASK. Làm LẦN LƯỢT các bước $steps_csv, không làm bước nào khác.

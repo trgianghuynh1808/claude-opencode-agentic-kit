@@ -440,9 +440,11 @@ so it needs no extra Claude calls and works even if an agent forgets to report:
 |---|---|
 | `🧭 Manager` | Replies to commands, plan approval or block, the ship report with the **Ship** button |
 | `🛠 Tech Lead` | `▶` when each of its calls starts, `📋` plan summary (steps, tests, Verify mode), `🔎` Verify PASS/FAIL with the Verify notes and up to 3 new screenshots, `🔁` each fix cycle, `🎉` merged into `staging` |
-| `⌨️ Senior Dev` | `▶` start; `🔧` which steps it is working on now (`bước 2–3/6`, difficulty label, model, step text); `↗` a retry of a step with a stronger model; `✅` each finished step with its commits; `🧪` test results (`T1 PASS`); `⛔` when a step still fails on the strongest model; done or stuck |
+| `⌨️ Senior Dev` | `▶` start; **one message per finished step**, in three sections: **Mô tả** (step, difficulty `dễ`/`vừa`/`khó` always shown, model used, step text), **Commit** (each commit with a link to it on GitHub) and **Kết quả test** (tests whose result changed during the step); `↗` a retry of a step with a stronger model; `⛔` when a step still fails on the strongest model; done or stuck (`watch-tasks.sh`) |
 
-The `🔧`, `↗` and `⛔` messages come from `run-task.sh` itself (it knows the current step group and model); the `✅` and `🧪` ones are derived from the task file and git. The second kind relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
+The `↗` and `⛔` messages come from `run-task.sh` itself (it knows the model and the retries); the per-step report is derived from the task file and git by the daemon (`room-ops.py progress`). It relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
+A step is reported once, after its task file has been quiet for a few seconds, so a commit or a test result that comes a moment after the checkbox still lands in the same message; a lone commit or test result waits for the next finished step, and anything left when OpenCode is done is sent once as "Phần còn lại". There is no "starting step" message.
+**Commit links.** They open on GitHub only if the commit is there, so when it reports a step the daemon pushes the task branch to `origin` **once per reported step** (never per commit or per check; it never asks for a password and gives up for 10 minutes after a failure) and deletes that remote branch when you `/ship`. Set `COMMIT_LINKS="false"` in `.agents/room.env` to turn this off (no push, no links; commits show as plain hashes). Only GitHub remotes get links. `tools/test-step-report.sh` covers it.
 Reported state is kept in `.agents/progress/<slug>.json` (git-ignored); if the daemon restarts in the middle of a task it continues from the current state instead of replaying old steps.
 **Telegram rate limit.** Telegram allows about 20 messages a minute per bot per group, shared by all Topics, and answers `429` with `retry_after` seconds when it is exceeded. The bridge waits exactly that long and sends again; the wait is kept **per bot**, so every room using a bot that was told to wait waits too. A wait longer than `MAX_RETRY_AFTER_S` (default 120) is not slept off and the outbox poller's own retry count applies. Ordering is kept: each room sends one message at a time.
 
@@ -601,7 +603,7 @@ Logs in `.agents/logs/` (progress messages are not logged, they go straight to T
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
-`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
 Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
@@ -655,6 +657,7 @@ claude-opencode-agentic-kit/
 │   ├── kit-lib.py                  # helpers of the kit command (registry, CLAUDE.md patch, status table)
 │   ├── test-kit.sh                 # regression test of the kit command
 │   ├── test-plan-mode.sh           # regression test of /plan (read-only Q&A)
+│   ├── test-step-report.sh         # one Dev message per step, commit links, push once per step
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
