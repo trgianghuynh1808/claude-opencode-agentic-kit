@@ -61,6 +61,7 @@ chmod +x "$TARGET"/scripts/*.sh
 copy_always prompts/MANAGER.md     .agents/MANAGER.md
 mkdir -p "$TARGET/.agents"
 echo "$KIT_DIR" > "$TARGET/.agents/kit-dir"   # agent-room.sh dùng để tìm bridge-bot/rooms.json
+(git -C "$KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown) > "$TARGET/.agents/kit-version"   # kit status so sánh với bản hiện tại
 
 echo ""
 echo "Cấu hình và template:"
@@ -73,7 +74,7 @@ mkdir -p "$TARGET/.agents/queue" "$TARGET/.agents/status"
 echo ""
 echo ".gitignore:"
 touch "$TARGET/.gitignore"
-for entry in ".agents/board.md" ".agents/room.env" ".agents/kit-dir" ".agents/watcher.pid" ".agents/progress/" ".agents/bin/" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
+for entry in ".agents/board.md" ".agents/room.env" ".agents/kit-dir" ".agents/kit-version" ".agents/watcher.pid" ".agents/progress/" ".agents/bin/" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
   if grep -qxF "$entry" "$TARGET/.gitignore" || grep -qxF "/$entry" "$TARGET/.gitignore"; then
     echo "  • $entry đã có"
   else
@@ -88,7 +89,7 @@ for f in .agents/board.md .agents/room.env; do
     git -C "$TARGET" rm --cached -q "$f" && echo "  ✓ gỡ $f khỏi git (file vẫn còn, nhớ commit)"
   fi
 done
-git -C "$TARGET" ls-files -v | grep '^h ' | awk '{print $2}' | while read -r f; do
+git -C "$TARGET" ls-files -v | { grep '^h ' || true; } | awk '{print $2}' | while read -r f; do
   git -C "$TARGET" update-index --no-assume-unchanged "$f" && echo "  ✓ bỏ assume-unchanged: $f"
 done
 

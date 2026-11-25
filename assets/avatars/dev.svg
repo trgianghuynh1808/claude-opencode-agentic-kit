@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#E4FFF5"/><stop offset="1" stop-color="#8FE3C8"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g fill="#FFFFFF" opacity=".9">
+    <path d="M66 118l8 20 20 8-20 8-8 20-8-20-20-8 20-8z"/>
+    <path d="M444 150l6 14 14 6-14 6-6 14-6-14-14-6 14-6z"/>
+    <path d="M70 380l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/>
+  </g>
+  <!-- code brackets in the background -->
+  <g fill="none" stroke="#5FCBAA" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity=".6">
+    <path d="M70 250 l-30 24 l30 24"/><path d="M442 250 l30 24 l-30 24"/>
+  </g>
+  <!-- antenna -->
+  <path d="M256 128 v-34" stroke="#3B7DD8" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="256" cy="84" r="16" fill="#FF8FA3"/><circle cx="250" cy="78" r="5" fill="#fff"/>
+  <!-- headphones band -->
+  <path d="M112 258 Q112 120 256 120 Q400 120 400 258" fill="none" stroke="#FF9F43" stroke-width="16" stroke-linecap="round"/>
+  <!-- head -->
+  <rect x="124" y="140" width="264" height="230" rx="92" fill="#6EC1FF"/>
+  <rect x="140" y="150" width="232" height="60" rx="30" fill="#A6DBFF" opacity=".55"/>
+  <!-- screen face -->
+  <rect x="156" y="188" width="200" height="146" rx="52" fill="#1C3557"/>
+  <ellipse cx="216" cy="250" rx="20" ry="26" fill="#52F0E4"/><circle cx="209" cy="240" r="7" fill="#fff"/><circle cx="222" cy="259" r="3.5" fill="#fff"/>
+  <ellipse cx="296" cy="250" rx="20" ry="26" fill="#52F0E4"/><circle cx="289" cy="240" r="7" fill="#fff"/><circle cx="302" cy="259" r="3.5" fill="#fff"/>
+  <path d="M236 296 q20 20 40 0" fill="none" stroke="#52F0E4" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="180" cy="296" rx="16" ry="9" fill="#FF8FA3" opacity=".7"/><ellipse cx="332" cy="296" rx="16" ry="9" fill="#FF8FA3" opacity=".7"/>
+  <!-- headphone cups -->
+  <rect x="86" y="228" width="44" height="86" rx="22" fill="#FF9F43"/><rect x="98" y="244" width="20" height="54" rx="10" fill="#FFC58A"/>
+  <rect x="382" y="228" width="44" height="86" rx="22" fill="#FF9F43"/><rect x="394" y="244" width="20" height="54" rx="10" fill="#FFC58A"/>
+  <!-- keyboard -->
+  <rect x="128" y="386" width="256" height="66" rx="20" fill="#FFFFFF"/>
+  <rect x="128" y="386" width="256" height="66" rx="20" fill="none" stroke="#3B7DD8" stroke-width="6"/>
+  <g fill="#BFD9F5">
+    <rect x="148" y="400" width="30" height="16" rx="5"/><rect x="186" y="400" width="30" height="16" rx="5"/><rect x="224" y="400" width="30" height="16" rx="5"/>
+    <rect x="262" y="400" width="30" height="16" rx="5"/><rect x="300" y="400" width="30" height="16" rx="5"/><rect x="338" y="400" width="30" height="16" rx="5"/>
+    <rect x="164" y="424" width="184" height="16" rx="5"/>
+  </g>
+</svg>

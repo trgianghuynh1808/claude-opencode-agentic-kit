@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# kit — một lệnh cho mọi việc với claude-opencode-agentic-kit.
+#
+#   kit new <tên> --port 3001 [--topic N]      tạo project mới từ con số 0 (thư mục, git, repo GitHub) rồi gắn phòng
+#   kit add <đường dẫn> --port 3001 [--topic N]  gắn phòng cho project đã có sẵn
+#   kit upgrade [tên|đường dẫn]                cập nhật kit cho mọi phòng (hoặc một phòng), restart nếu đang chạy
+#   kit status                                 bảng tình trạng mọi phòng
+#   kit remove <tên|đường dẫn>                 dừng phòng và gỡ khỏi bridge (giữ nguyên file)
+#
+# Cờ chung:  --topic N  --port P  --name TÊN  --agents (nhờ Claude soạn nháp AGENTS.md)  --no-start  --yes
+# Cờ của upgrade: --no-bridge (không restart bridge)
+# Cờ của new: --no-github | --private (mặc định public)  --template "lệnh"  --dir ĐƯỜNG_DẪN
+# Biến: KIT_PROJECTS_DIR (mặc định ~/Documents/projects) · AGENT_ROOMS_FILE (registry của bridge) · KIT_AGENTS_MODEL (mặc định sonnet)
+
+set -euo pipefail
+
+SELF="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+KIT_DIR="$(dirname "$SELF")"
+LIB="$KIT_DIR/tools/kit-lib.py"
+PROJECTS_DIR="${KIT_PROJECTS_DIR:-$HOME/Documents/projects}"
+export AGENT_ROOMS_FILE="${AGENT_ROOMS_FILE:-$KIT_DIR/bridge-bot/rooms.json}"
+
+if [[ -t 1 ]]; then B=$'\e[1m'; D=$'\e[2m'; R=$'\e[31m'; G=$'\e[32m'; Y=$'\e[33m'; C=$'\e[36m'; X=$'\e[0m'; else B=""; D=""; R=""; G=""; Y=""; C=""; X=""; fi
+ok()   { echo "  ${G}✓${X} $*"; }
+warn() { echo "  ${Y}⚠${X}  $*"; }
+step() { echo ""; echo "${B}${C}$*${X}"; }
+die()  { echo "${R}⛔ $*${X}" >&2; exit 1; }
+
+# ---------- tham số ----------
+PORT=""; TOPIC=""; NAME=""; AGENTS=0; START=1; YES=0
+GITHUB=1; VIS="public"; TEMPLATE=""; DIR=""; NO_BRIDGE=0
+POS=()
+
+parse_args() {
+  POS=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --port)      PORT="${2:?--port cần giá trị}"; shift 2 ;;
+      --topic)     TOPIC="${2:?--topic cần giá trị}"; shift 2 ;;
+      --name)      NAME="${2:?--name cần giá trị}"; shift 2 ;;
+      --dir)       DIR="${2:?--dir cần giá trị}"; shift 2 ;;
+      --template)  TEMPLATE="${2:?--template cần giá trị}"; shift 2 ;;
+      --agents)    AGENTS=1; shift ;;
+      --no-start)  START=0; shift ;;
+      --no-bridge) NO_BRIDGE=1; shift ;;
+      --no-github) GITHUB=0; shift ;;
+      --github)    GITHUB=1; shift ;;
+      --private)   VIS="private"; shift ;;
+      --public)    VIS="public"; shift ;;
+      --yes|-y)    YES=1; shift ;;
+      -h|--help)   usage; exit 0 ;;
+      -*)          die "Cờ lạ: $1 (xem: kit --help)" ;;
+      *)           POS+=("$1"); shift ;;
+    esac
+  done
+}
+
+usage() { sed -n '2,14p' "$SELF" | sed 's/^# \{0,1\}//'; }
+
+confirm() {   # câu hỏi
+  (( YES )) && return 0
+  [[ -t 0 ]] || die "Cần xác nhận ('$1') nhưng không có terminal. Thêm --yes nếu bạn chắc chắn."
+  local a; read -r -p "$1 [y/N] " a
+  [[ "$a" =~ ^[yY] ]]
+}
+
+ask() {   # câu hỏi, mặc định → in giá trị
+  local v=""
+  if [[ -t 0 ]]; then read -r -p "$1${2:+ [$2]}: " v; fi
+  echo "${v:-${2:-}}"
+}
+
+# ---------- kiểm tra tiền đề ----------
+preflight() {
+  local p="$1" missing="" c
+  for c in git claude opencode python3 node; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
+  command -v tmux >/dev/null 2>&1 || command -v pm2 >/dev/null 2>&1 || missing="$missing (tmux hoặc pm2)"
+  [[ -z "$missing" ]] || die "Thiếu công cụ:$missing"
+
+  git -C "$p" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$p không phải git repo (dùng: kit new <tên> để tạo từ đầu)"
+  git -C "$p" rev-parse HEAD >/dev/null 2>&1 || die "$p chưa có commit nào. Commit một lần rồi chạy lại."
+  if [[ -n "$(git -C "$p" status --porcelain)" ]]; then
+    git -C "$p" status --short | head -8 >&2
+    die "Cây git của $p đang có thay đổi chưa commit. Commit hoặc stash rồi chạy lại."
+  fi
+  [[ ! -f "$p/.agents/room.env" ]] || die "$p đã là một phòng. Để cập nhật dùng: kit upgrade $(basename "$p")"
+  [[ "$(git -C "$p" rev-parse --abbrev-ref HEAD)" == "main" ]] || warn "Nhánh hiện tại không phải main ($(git -C "$p" rev-parse --abbrev-ref HEAD))"
+  if (( START )) && [[ ! -f "$KIT_DIR/bridge-bot/.env" ]]; then
+    die "Chưa có bridge-bot/.env (BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID). Xem README, hoặc thêm --no-start."
+  fi
+}
+
+resolve_topic_port() {
+  local p="$1" guess out
+  if [[ -z "$PORT" ]]; then
+    guess="$(python3 "$LIB" detect-port "$p" || true)"
+    PORT="$(ask "Port của dev server" "$guess")"
+  fi
+  [[ "$PORT" =~ ^[0-9]+$ ]] || die "Thiếu hoặc sai port. Dùng: --port 3001"
+  if [[ -z "$TOPIC" ]]; then
+    echo ""
+    echo "Mỗi project cần một Topic riêng trong group Telegram."
+    echo "  1. Tạo Topic mới trong group."
+    echo "  2. Gõ ${B}/status${X} trong Topic đó: bot trả lời 'Topic N chưa có phòng nào'."
+    TOPIC="$(ask "Topic ID (số N)" "")"
+  fi
+  [[ "$TOPIC" =~ ^[0-9]+$ ]] || die "Thiếu hoặc sai Topic ID. Dùng: --topic 12"
+  out="$(python3 "$LIB" check "$TOPIC" "$PORT" "$p")" || die "$out"
+  [[ -z "$out" ]] || warn "$out"
+}
+
+# ---------- các bước dùng chung ----------
+install_kit() {   # project
+  local log; log="$("$KIT_DIR/install.sh" "$1" 2>&1)" || { echo "$log" >&2; die "install.sh lỗi"; }
+  ok "Đã cài scripts và template"
+}
+
+patch_project() {   # project: CLAUDE.md + các khóa room.env còn thiếu
+  local p="$1" r keys
+  r="$(python3 "$LIB" patch-claude "$p")"
+  [[ "$r" == changed ]] && ok "CLAUDE.md: cập nhật mục AUTO_MODE" || ok "CLAUDE.md: mục AUTO_MODE đã mới nhất"
+  keys="$(python3 "$LIB" ensure-env "$p")"
+  [[ -z "$keys" ]] || ok "room.env: thêm khóa $keys"
+}
+
+commit_all() {   # project, message
+  git -C "$1" add -A
+  if git -C "$1" diff --cached --quiet; then ok "Không có gì để commit"; else git -C "$1" commit -q -m "$2" && ok "Đã commit: $2"; fi
+}
+
+draft_agents() {   # project
+  local p="$1" prompt
+  prompt="$(awk '/^```$/{n++; next} n==1' "$KIT_DIR/prompts/generate-agents-md.md" | grep -v '^- <')"
+  prompt="$prompt
+
+Hãy tự suy ra phần 'Bối cảnh đã biết' (stack, port dev server, lệnh dev) từ chính repo này, đừng chờ tôi cung cấp."
+  echo "  ${D}Claude đang đọc repo để soạn AGENTS.md (mất vài phút, tốn một lần gọi Claude)...${X}"
+  if (cd "$p" && claude -p "$prompt" --dangerously-skip-permissions --max-turns 40 --model "${KIT_AGENTS_MODEL:-sonnet}" >/dev/null 2>&1); then
+    if git -C "$p" diff --quiet -- AGENTS.md; then warn "AGENTS.md không đổi, bạn tự điền nhé"; else
+      git -C "$p" add AGENTS.md && git -C "$p" commit -q -m "docs: draft AGENTS.md (review before use)"
+      ok "AGENTS.md đã được soạn nháp và commit riêng. ${B}Hãy đọc lại và sửa chỗ sai/TODO${X}: $p/AGENTS.md"
+    fi
+  else
+    warn "Claude không soạn được AGENTS.md. Bạn dùng prompts/generate-agents-md.md để điền tay."
+  fi
+}
+
+start_room() {   # project
+  step "Bật phòng"
+  (cd "$1" && scripts/agent-room.sh start)
+  sleep 4
+  (cd "$1" && scripts/agent-room.sh status | sed -n 1,5p | sed 's/^/  /')
+}
+
+add_flow() {   # project (đã qua preflight)
+  local p="$1"
+  [[ -n "$NAME" ]] || NAME="$(basename "$p")"
+  step "1/5 Cài kit"
+  install_kit "$p"
+  step "2/5 Tạo phòng (Topic $TOPIC, port $PORT)"
+  (cd "$p" && scripts/agent-room.sh init --topic "$TOPIC" --port "$PORT" --name "$NAME" >/dev/null)
+  ok "Đã tạo .agents/ và đăng ký Topic $TOPIC với bridge"
+  step "3/5 Cấu hình project"
+  patch_project "$p"
+  step "4/5 Commit"
+  commit_all "$p" "chore: add agent room"
+  if (( AGENTS )); then step "5/5 Soạn nháp AGENTS.md"; draft_agents "$p"; else
+    step "5/5 AGENTS.md"
+    if grep -q 'TODO' "$p/AGENTS.md" 2>/dev/null; then warn "AGENTS.md còn TODO: điền bằng prompts/generate-agents-md.md (hoặc chạy lại với --agents). Agent cần file này để biết cách test và chạy app."; else ok "AGENTS.md đã có nội dung"; fi
+  fi
+  if (( START )); then start_room "$p"; else warn "Bỏ qua bật phòng (--no-start). Khi sẵn sàng: cd $p && scripts/agent-room.sh start"; fi
+  echo ""
+  echo "${B}${G}Xong!${X} Phòng '${NAME}' đã gắn với Topic ${TOPIC}."
+  echo "  Việc tiếp theo trong Telegram (Topic ${TOPIC}): ${B}/health${X} để kiểm tra, rồi ${B}/auto <việc cần làm>${X}."
+}
+
+# ---------- kit add ----------
+cmd_add() {
+  parse_args "$@"
+  [[ ${#POS[@]} -ge 1 ]] || die "Cách dùng: kit add <đường dẫn project> --port 3001 [--topic N]"
+  [[ -d "${POS[0]}" ]] || die "Không thấy thư mục: ${POS[0]}"
+  local p; p="$(cd "${POS[0]}" && pwd)"
+  preflight "$p"
+  resolve_topic_port "$p"
+  add_flow "$p"
+}
+
+# ---------- kit new ----------
+cmd_new() {
+  parse_args "$@"
+  [[ ${#POS[@]} -ge 1 ]] || die "Cách dùng: kit new <tên> --port 3001 [--topic N] [--private] [--no-github] [--template \"lệnh\"]"
+  local name="${POS[0]}" dir owner
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Tên project chỉ gồm chữ, số, '.', '_' và '-'"
+  dir="${DIR:-$PROJECTS_DIR/$name}"
+  if [[ -e "$dir" ]] && [[ -n "$(ls -A "$dir" 2>/dev/null)" ]]; then die "Thư mục $dir đã tồn tại và không rỗng. Nếu là project có sẵn, dùng: kit add $dir"; fi
+  NAME="${NAME:-$name}"
+
+  # Hỏi trước mọi việc nặng, để không tạo dở dang
+  if (( GITHUB )); then
+    command -v gh >/dev/null 2>&1 || die "Chưa cài gh (brew install gh). Hoặc thêm --no-github để chỉ tạo local."
+    gh auth status >/dev/null 2>&1 || die "gh chưa đăng nhập: chạy 'gh auth login'. Hoặc thêm --no-github."
+    owner="$(gh api user --jq .login)"
+    echo "Sẽ tạo repo GitHub ${B}$(echo "$VIS" | tr '[:lower:]' '[:upper:]')${X}: ${B}$owner/$name${X} và push nhánh main."
+    confirm "Tiếp tục?" || die "Đã huỷ, chưa tạo gì."
+  fi
+  resolve_topic_port "$dir"   # không có thư mục nên check chỉ dựa vào registry
+
+  step "Tạo project"
+  mkdir -p "$dir"
+  if [[ -n "$TEMPLATE" ]]; then
+    echo "  ${D}chạy template: $TEMPLATE${X}"
+    (cd "$dir" && bash -c "$TEMPLATE") || die "Template lỗi (thư mục $dir đã được tạo, bạn có thể xoá và chạy lại)"
+    ok "Đã chạy template"
+  fi
+  git -C "$dir" init -q -b main
+  ok "git init (nhánh main)"
+  if [[ ! -f "$dir/.gitignore" ]]; then
+    printf 'node_modules/\ndist/\n.env\n.env.*\n!.env.example\n.DS_Store\ntest-results/\nplaywright-report/\n' > "$dir/.gitignore"
+  fi
+  [[ -f "$dir/README.md" ]] || printf '# %s\n\nTạo bằng claude-opencode-agentic-kit.\n' "$name" > "$dir/README.md"
+  git -C "$dir" add -A
+  git -C "$dir" commit -q -m "chore: initial commit"
+  ok "Commit đầu tiên"
+  if (( GITHUB )); then
+    (cd "$dir" && gh repo create "$name" "--$VIS" --source . --remote origin --push >/dev/null) || die "gh repo create lỗi (repo local vẫn ở $dir)"
+    ok "Repo GitHub: https://github.com/$owner/$name ($VIS)"
+  fi
+
+  preflight "$dir"
+  add_flow "$dir"
+}
+
+# ---------- kit upgrade ----------
+room_busy() {   # project → in lý do nếu bận
+  local p="$1" f
+  if grep -qx 'AUTO_MODE="true"' "$p/.agents/room.env" 2>/dev/null; then echo "AUTO_MODE đang bật"; return 0; fi
+  for f in "$p"/.agents/status/*.status; do
+    [[ -f "$f" ]] || continue
+    case "$(cut -d' ' -f1 "$f")" in queued|running) echo "OpenCode đang chạy $(basename "$f" .status)"; return 0 ;; esac
+  done
+  if grep -qE '^- \[ \] `T[0-9]+` \[(planning|plan_ready|in_progress)\]' "$p/.agents/board.md" 2>/dev/null; then echo "có task đang dở"; return 0; fi
+  return 1
+}
+
+room_running() { tmux has-session -t "room-$1" 2>/dev/null || { command -v pm2 >/dev/null 2>&1 && pm2 describe "room-$1-manager" >/dev/null 2>&1; }; }
+
+upgrade_one() {   # name path → trả 0 nếu đã nâng cấp
+  local name="$1" p="$2" reason was_running=0 version
+  echo ""; echo "${B}$name${X} ${D}($p)${X}"
+  [[ -d "$p" ]] || { warn "thư mục không còn tồn tại, bỏ qua"; return 1; }
+  [[ -f "$p/.agents/room.env" ]] || { warn "không phải phòng (thiếu .agents/room.env), bỏ qua"; return 1; }
+  if reason="$(room_busy "$p")"; then warn "đang bận ($reason), bỏ qua. Chạy lại khi phòng rảnh."; return 1; fi
+  if [[ -n "$(git -C "$p" status --porcelain)" ]]; then warn "cây git đang dơ, bỏ qua. Commit rồi chạy lại."; git -C "$p" status --short | head -5 | sed 's/^/      /'; return 1; fi
+  room_running "$name" && was_running=1
+  (( was_running )) && { (cd "$p" && scripts/agent-room.sh stop >/dev/null) && ok "Đã dừng phòng để cập nhật"; }
+  install_kit "$p"
+  patch_project "$p"
+  version="$(git -C "$KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  commit_all "$p" "chore: update kit ($version)"
+  if (( was_running )); then (cd "$p" && scripts/agent-room.sh start >/dev/null) && ok "Đã bật lại phòng"; else ok "Phòng đang dừng, giữ nguyên trạng thái dừng"; fi
+  return 0
+}
+
+cmd_upgrade() {
+  parse_args "$@"
+  local filter="${POS[0]:-}" n_ok=0 n_skip=0 name path topic
+  local rooms; rooms="$(python3 "$LIB" rooms "$filter")"
+  [[ -n "$rooms" ]] || die "${filter:+Không thấy phòng '$filter'. }Chưa có phòng nào trong registry ($AGENT_ROOMS_FILE)."
+  while IFS=$'\t' read -r name path topic; do
+    if upgrade_one "$name" "$path"; then n_ok=$((n_ok + 1)); else n_skip=$((n_skip + 1)); fi
+  done <<< "$rooms"
+  if (( n_ok > 0 && ! NO_BRIDGE )); then
+    step "Restart bridge (nạp code mới)"
+    "$KIT_DIR/bridge-bot/bridge.sh" stop >/dev/null 2>&1 || true
+    "$KIT_DIR/bridge-bot/bridge.sh" start
+  fi
+  echo ""
+  echo "${B}Tổng kết:${X} đã nâng cấp $n_ok phòng, bỏ qua $n_skip."
+}
+
+# ---------- kit status / remove ----------
+cmd_status() {
+  parse_args "$@"
+  python3 "$LIB" status
+  echo ""
+  "$KIT_DIR/bridge-bot/bridge.sh" status 2>/dev/null || true
+}
+
+cmd_remove() {
+  parse_args "$@"
+  [[ ${#POS[@]} -ge 1 ]] || die "Cách dùng: kit remove <tên|đường dẫn>"
+  local row name path
+  row="$(python3 "$LIB" rooms "${POS[0]}" | head -1)"
+  [[ -n "$row" ]] || die "Không thấy phòng '${POS[0]}'"
+  name="$(cut -f1 <<<"$row")"; path="$(cut -f2 <<<"$row")"
+  confirm "Dừng phòng '$name' và gỡ khỏi bridge? (file trong $path giữ nguyên)" || die "Đã huỷ."
+  if [[ -d "$path" && -f "$path/scripts/agent-room.sh" ]]; then (cd "$path" && scripts/agent-room.sh stop) || true; fi
+  python3 "$LIB" unregister "$name"
+  echo "  Muốn gỡ hẳn kit khỏi project: xoá thư mục .agents/ và các file scripts/ của kit."
+}
+
+# ---------- điều phối ----------
+case "${1:-}" in
+  new)       shift; cmd_new "$@" ;;
+  add)       shift; cmd_add "$@" ;;
+  upgrade)   shift; cmd_upgrade "$@" ;;
+  status)    shift; cmd_status "$@" ;;
+  remove)    shift; cmd_remove "$@" ;;
+  -h|--help|help|"") usage ;;
+  *) die "Lệnh lạ: $1. Dùng: new | add | upgrade | status | remove (kit --help)" ;;
+esac

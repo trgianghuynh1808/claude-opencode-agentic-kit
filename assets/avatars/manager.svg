@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#FFF1DC"/><stop offset="1" stop-color="#FFBE7A"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- sparkles -->
+  <g fill="#FFFFFF" opacity=".9">
+    <path d="M70 90l8 20 20 8-20 8-8 20-8-20-20-8 20-8z"/>
+    <path d="M440 120l6 14 14 6-14 6-6 14-6-14-14-6 14-6z"/>
+    <path d="M430 400l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/>
+  </g>
+  <!-- body -->
+  <ellipse cx="256" cy="440" rx="120" ry="70" fill="#F5A65B"/>
+  <path d="M236 395 l20 38 l20 -38 z" fill="#FFFFFF"/>
+  <!-- ears -->
+  <circle cx="140" cy="150" r="50" fill="#F29B4B"/><circle cx="140" cy="150" r="26" fill="#FFD3A8"/>
+  <circle cx="372" cy="150" r="50" fill="#F29B4B"/><circle cx="372" cy="150" r="26" fill="#FFD3A8"/>
+  <!-- head -->
+  <circle cx="256" cy="250" r="140" fill="#F5A65B"/>
+  <ellipse cx="256" cy="305" rx="68" ry="50" fill="#FFE6CB"/>
+  <ellipse cx="256" cy="283" rx="16" ry="11" fill="#5B3A29"/>
+  <path d="M256 294 v12 M256 306 q-14 14 -28 4 M256 306 q14 14 28 4" fill="none" stroke="#5B3A29" stroke-width="6" stroke-linecap="round"/>
+  <!-- eyes + glasses -->
+  <circle cx="204" cy="232" r="17" fill="#3B2A22"/><circle cx="198" cy="225" r="6" fill="#fff"/><circle cx="210" cy="238" r="3" fill="#fff"/>
+  <circle cx="308" cy="232" r="17" fill="#3B2A22"/><circle cx="302" cy="225" r="6" fill="#fff"/><circle cx="314" cy="238" r="3" fill="#fff"/>
+  <g fill="#FFFFFF" fill-opacity=".28" stroke="#8A4F24" stroke-width="7">
+    <circle cx="204" cy="232" r="40"/><circle cx="308" cy="232" r="40"/>
+  </g>
+  <path d="M244 230 q12 -10 24 0" fill="none" stroke="#8A4F24" stroke-width="7" stroke-linecap="round"/>
+  <!-- blush -->
+  <ellipse cx="150" cy="290" rx="24" ry="14" fill="#FF8FA3" opacity=".6"/>
+  <ellipse cx="362" cy="290" rx="24" ry="14" fill="#FF8FA3" opacity=".6"/>
+  <!-- compass badge -->
+  <circle cx="256" cy="448" r="36" fill="#8A4F24"/><circle cx="256" cy="448" r="29" fill="#FFFDF7"/>
+  <path d="M256 424 l9 24 l-9 24 l-9 -24z" fill="#E5484D" transform="rotate(35 256 448)"/>
+  <path d="M256 472 l-9 -24 l9 -24" fill="none"/>
+  <circle cx="256" cy="448" r="5" fill="#8A4F24"/>
+</svg>

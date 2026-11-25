@@ -448,20 +448,41 @@ By default all three use the main bot and only the label differs. For separate i
 add them to the group as ordinary members (admin is not needed: they only send, and Group Privacy does not matter), and set `BOT_TOKEN_TECHLEAD` and `BOT_TOKEN_DEV` in `bridge-bot/.env`. They only send: commands, reactions and the Ship button
 stay on the main bot, so a message that needs approval is always sent by the Manager. The startup log shows which identity each role uses.
 
-### Add a project (once per project)
+### The `kit` command (add, upgrade, status)
+
+One command replaces the manual steps. Put it on your PATH once (any folder in your PATH works):
 
 ```bash
-./install.sh /path/to/project                       # from the kit; copies scripts, .agents/MANAGER.md, .agents/kit-dir
+ln -s ~/Documents/projects/claude-opencode-kit/kit ~/.local/bin/kit
+```
+
+| Command | What it does |
+|---|---|
+| `kit new <name> --port 3001 --topic 12` | **New project from scratch**: creates `~/Documents/projects/<name>` (`KIT_PROJECTS_DIR`), `git init` on `main`, `.gitignore`, `README.md`, first commit, a **public** GitHub repo with `gh` (asks you to confirm first; `--private`, or `--no-github` for local only), then everything `kit add` does. `--template "npm create vite@latest . -- --template vanilla-ts"` runs your scaffolding command in the empty folder first |
+| `kit add <path> --port 3001 --topic 12` | **Existing project**: checks the prerequisites (git repo with a commit, clean tree, `claude`, `opencode`, `tmux`/`pm2`, `bridge-bot/.env`), installs the kit, creates the room and registers the Topic, adds or refreshes the AUTO_MODE section of an existing `CLAUDE.md` (the rest is kept), commits, starts the room (and the bridge if needed) and shows its status |
+| `kit upgrade [name]` | Updates the kit in every registered room (or one). A room is skipped, with the reason, when it is busy (AUTO_MODE on, OpenCode running, a task in progress) or its git tree is dirty. An idle running room is stopped, updated, committed and started again; a stopped room stays stopped. The bridge is restarted once at the end (`--no-bridge` to skip) |
+| `kit status` | One table: every room, running or not, AUTO_MODE, the task in progress and the kit version it runs (flagged when behind) |
+| `kit remove <name>` | Stops a room and removes it from the bridge; the project files are left alone |
+
+Common flags: `--agents` asks Claude once to **draft `AGENTS.md`** from the repo (committed separately as `docs: draft AGENTS.md (review before use)`: read it before the first task),
+`--no-start` only prepares the room, `--yes` answers the confirmation. Without `--topic`, `kit` explains how to get one and asks for it; without `--port` it guesses from `package.json`.
+
+The only manual steps left for a new project: create the Topic in Telegram and read its id (type `/status` in the new Topic: the bot answers `Topic N chưa có phòng nào`),
+review `AGENTS.md`, and set up Playwright if the project should verify in the browser. Then, in the Topic: `/health`, then `/auto <task>`.
+`tools/test-kit.sh` is the regression test of the command (temporary folders, fake `gh` and `claude`, nothing real is touched).
+
+Under the hood `kit add` is `install.sh` + `agent-room.sh init` + the CLAUDE.md/room.env patch + commit + `agent-room.sh start`, so the individual scripts still work on their own:
+
+```bash
+./install.sh /path/to/project                                   # copy scripts, template, .agents/
 cd /path/to/project
-scripts/agent-room.sh init --topic <TOPIC_ID> --port <PORT>   # .agents/room.env, board.md, registers the room in bridge-bot/rooms.json
+scripts/agent-room.sh init --topic <TOPIC_ID> --port <PORT>     # .agents/room.env, board.md, register the room
 git add -A && git commit -m "chore: add agent room"
 ```
 
-- Fill `AGENTS.md` and `.agents/config.sh` as in [First-time project setup](#first-time-project-setup).
-- `install.sh` never overwrites an existing `CLAUDE.md`. If the project already has one, append the `## AUTO_MODE` section from `template/CLAUDE.md`.
-- `<PORT>` is the dev server port; Verify uses `DEFAULT_VERIFY_URL` with its port replaced by it (so `?test=1` is kept).
-- `rooms.json` lives in `<kit>/bridge-bot/` (override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot); it is hot-reloaded.
-- After upgrading the kit, re-run `./install.sh /path/to/project` when the room is idle (a dirty working tree blocks hand-off), then commit.
+- `install.sh` never overwrites an existing `CLAUDE.md`; `kit` patches its AUTO_MODE section for you (by hand: copy the `## AUTO_MODE` section from `template/CLAUDE.md`).
+- Verify uses `DEFAULT_VERIFY_URL` with its port replaced by `<PORT>` (so `?test=1` is kept). `rooms.json` lives in `<kit>/bridge-bot/` (override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot); it is hot-reloaded.
+- After upgrading the kit, use `kit upgrade` (a dirty working tree blocks hand-off, so rooms must be committed).
 
 ### Daily use
 
@@ -559,6 +580,7 @@ Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode
 
 ```
 claude-opencode-agentic-kit/
+├── kit                             # CLI: new | add | upgrade | status | remove (see "The kit command")
 ├── install.sh                      # install/upgrade the kit in a project
 ├── scripts/
 │   ├── run-task.sh                 # run a task's steps + Verify
@@ -574,6 +596,8 @@ claude-opencode-agentic-kit/
 │   └── notify.sh                   # desktop notification
 ├── tools/                          # kit maintenance only (not installed into projects)
 │   ├── sync-knowledge.sh           # bundle the kit into kit-source.md for a Claude Project
+│   ├── kit-lib.py                  # helpers of the kit command (registry, CLAUDE.md patch, status table)
+│   ├── test-kit.sh                 # regression test of the kit command
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
 │   ├── CLAUDE.md
