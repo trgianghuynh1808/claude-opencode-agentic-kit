@@ -18,6 +18,14 @@ notify() {
   printf '\a'
 }
 
+say_user() {   # role text — báo ra Telegram qua .agents/outbox khi project là một phòng (có room.env)
+  [[ -f .agents/room.env ]] || return 0
+  mkdir -p .agents/outbox
+  local f=".agents/outbox/$(date +%s)-dev-$RANDOM.json"
+  python3 -c 'import json,sys; print(json.dumps({"from": sys.argv[1], "text": sys.argv[2]}, ensure_ascii=False))' "$1" "$2" > "$f.tmp" \
+    && mv "$f.tmp" "$f" || true
+}
+
 set_status() {   # task state
   local f="$STATUS_DIR/$(basename "$1" .md).status"
   printf '%s %s\n' "$2" "$(date +%s)" > "$f"
@@ -50,11 +58,14 @@ while true; do
     notify "Giao task lỗi" "Không thấy file $task"
   else
     set_status "$task" running
+    say_user dev "Bắt đầu code: $(basename "$task" .md)"
     if AUTOPILOT=1 scripts/run-task.sh "$task"; then
       set_status "$task" done
+      say_user dev "Xong các bước code: $(basename "$task" .md). Chuyển Tech Lead verify."
       notify "OpenCode đã xong ✅" "$(basename "$task") — Claude tiếp tục"
     else
       set_status "$task" stuck
+      say_user dev "Bị kẹt: $(basename "$task" .md). Chuyển Tech Lead xử lý."
       notify "OpenCode bị kẹt ⛔" "$(basename "$task") — Claude xử lý"
     fi
   fi

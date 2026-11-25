@@ -19,7 +19,10 @@ if (!BOT_TOKEN) {
 const DISCOVERY = !ADMIN_USER_ID || !CHAT_ID || !Number.isFinite(ADMIN_USER_ID) || !Number.isFinite(CHAT_ID);
 
 interface Room { topicId: number; name: string; path: string }
-interface OutboxMessage { text?: string; images?: string[]; requires?: string }
+type Role = "manager" | "techlead" | "dev";
+interface OutboxMessage { text?: string; images?: string[]; requires?: string; from?: Role }
+
+const ROLE_LABEL: Record<Role, string> = { manager: "🧭 Manager", techlead: "🛠 Tech Lead", dev: "⌨️ Senior Dev" };
 
 // ---------- helpers ----------
 async function loadRooms(): Promise<Room[]> {
@@ -86,6 +89,13 @@ function safeImage(room: Room, rel: string): string | null {
 // ---------- inbound: Telegram -> .agents/inbox ----------
 const bot = new Bot(BOT_TOKEN);
 
+// Optional extra identities. They only send (never poll); without a token the role falls back to the main bot.
+const roleApis: Record<Role, Bot["api"]> = {
+  manager: bot.api,
+  techlead: process.env.BOT_TOKEN_TECHLEAD ? new Bot(process.env.BOT_TOKEN_TECHLEAD).api : bot.api,
+  dev: process.env.BOT_TOKEN_DEV ? new Bot(process.env.BOT_TOKEN_DEV).api : bot.api,
+};
+
 if (DISCOVERY) {
   bot.on("message", async (ctx) => {
     const info = `ADMIN_USER_ID=${ctx.from?.id}\nTELEGRAM_CHAT_ID=${ctx.chat.id}\nTopic ID (message_thread_id)=${ctx.message.message_thread_id ?? "none (General)"}`;
@@ -142,8 +152,11 @@ bot.on("callback_query:data", async (ctx) => {
 const attempts = new Map<string, number>();
 
 async function sendOutbox(room: Room, msg: OutboxMessage): Promise<void> {
+  // Ship buttons are answered by the main bot, so a message that needs approval always comes from the manager.
+  const role: Role = msg.requires ? "manager" : (msg.from && msg.from in ROLE_LABEL ? msg.from : "manager");
+  const api = roleApis[role];
   const opts = { message_thread_id: room.topicId } as const;
-  const title = `📌 ${room.name}`;
+  const title = `${ROLE_LABEL[role]} · ${room.name}`;
   const images = (msg.images ?? []).map((p) => safeImage(room, p)).filter((p): p is string => p !== null);
   const existing: string[] = [];
   for (const p of images) if (await fs.stat(p).then((s) => s.isFile()).catch(() => false)) existing.push(p);
@@ -155,15 +168,15 @@ async function sendOutbox(room: Room, msg: OutboxMessage): Promise<void> {
   const parts = chunk(`${title}\n${msg.text ?? ""}`);
   for (let i = 0; i < parts.length; i++) {
     const last = i === parts.length - 1 && existing.length === 0;
-    await bot.api.sendMessage(CHAT_ID, parts[i], { ...opts, ...(last && keyboard ? { reply_markup: keyboard } : {}) });
+    await api.sendMessage(CHAT_ID, parts[i], { ...opts, ...(last && keyboard ? { reply_markup: keyboard } : {}) });
   }
   if (existing.length === 1) {
-    await bot.api.sendPhoto(CHAT_ID, new InputFile(existing[0]), { ...opts, ...(keyboard ? { reply_markup: keyboard } : {}) });
+    await api.sendPhoto(CHAT_ID, new InputFile(existing[0]), { ...opts, ...(keyboard ? { reply_markup: keyboard } : {}) });
   } else if (existing.length > 1) {
     for (let i = 0; i < existing.length; i += 10) {
-      await bot.api.sendMediaGroup(CHAT_ID, existing.slice(i, i + 10).map((p) => ({ type: "photo" as const, media: new InputFile(p) })), opts);
+      await api.sendMediaGroup(CHAT_ID, existing.slice(i, i + 10).map((p) => ({ type: "photo" as const, media: new InputFile(p) })), opts);
     }
-    if (keyboard) await bot.api.sendMessage(CHAT_ID, "Duyệt ship?", { ...opts, reply_markup: keyboard });
+    if (keyboard) await api.sendMessage(CHAT_ID, "Duyệt ship?", { ...opts, reply_markup: keyboard });
   }
 }
 
@@ -205,5 +218,6 @@ if (!DISCOVERY) setInterval(async () => {
 
 bot.catch((err) => console.error("bot error:", err.message));
 console.log(`ADMIN_USER_ID=${ADMIN_USER_ID} TELEGRAM_CHAT_ID=${CHAT_ID}`);
+console.log(`Identities: manager=main, techlead=${process.env.BOT_TOKEN_TECHLEAD ? "own bot" : "main bot (label)"}, dev=${process.env.BOT_TOKEN_DEV ? "own bot" : "main bot (label)"}`);
 console.log(DISCOVERY ? "Discovery mode: send any message in the group/Topic to get the ids." : `Bridge bot up. Rooms file: ${ROOMS_FILE}`);
 void bot.start();
