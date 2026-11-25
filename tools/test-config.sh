@@ -26,25 +26,28 @@ check "the block sits under the header, before the task list"   '[[ "$(grep -n "
 S="$(cmd /status)"
 check "/status lists the settings in plain words"               'grep -q "Duyệt plan: \*\*bạn duyệt plan\*\*" <<<"$S" && grep -q "Link commit: \*\*bật\*\*" <<<"$S" && grep -q "Cổng dev: \*\*4321\*\*" <<<"$S" && grep -q "Model Manager\|Model Manager" <<<"$S"'
 
-echo "/automode:"
+echo "/automode (who approves plans; it never stops the work):"
 R="$(cmd /automode)"
-check "without an argument it reports the state"                'grep -q "đang \*\*TẮT\*\*" <<<"$R"'
+check "without an argument it reports the mode and that the room is paused"   'grep -q "đang \*\*TẮT\*\*" <<<"$R" && grep -q "tạm dừng" <<<"$R"'
 R="$(cmd /automode on)"
-check "on: AUTO_MODE true in room.env and ON on the board"      '[[ "$(envval AUTO_MODE)" == true ]] && grep -q "Auto Mode:\*\* ON" .agents/board.md && grep -q "bật chế độ tự động" <<<"$R"'
-check "on with an empty board says what to do next"             'grep -q "Board đang trống" <<<"$R"'
-check "on without a running watcher warns about it"             'grep -q "watcher" <<<"$R"'
+check "on: plans are approved automatically (room.env and the board)"       '[[ "$(envval PLAN_APPROVAL)" == auto ]] && grep -q "Plan Approval:\*\* auto" .agents/board.md && grep -q "bật chế độ tự động" <<<"$R" && grep -q "Ship vẫn cần bạn" <<<"$R"'
+check "on does not start or stop anything by itself"                        '[[ "$(envval AUTO_MODE)" == false ]] && grep -q "tạm dừng" <<<"$R"'
 R="$(cmd /automode on)"
-check "on again is harmless"                                    'grep -q "đang bật rồi" <<<"$R"'
+check "on again is harmless"                                                'grep -q "bật rồi" <<<"$R"'
+cmd "/task" "Việc một" >/dev/null
+check "/task starts the work"                                               '[[ "$(envval AUTO_MODE)" == true ]]'
 R="$(cmd /automode off)"
-check "off: AUTO_MODE false everywhere"                         '[[ "$(envval AUTO_MODE)" == false ]] && grep -q "Auto Mode:\*\* OFF" .agents/board.md'
+check "off: you approve every plan, and the work keeps going"               '[[ "$(envval PLAN_APPROVAL)" == ask ]] && [[ "$(envval AUTO_MODE)" == true ]] && grep -q "vẫn làm việc" <<<"$R" && grep -q "Duyệt plan" <<<"$R" && grep -q "Ship" <<<"$R" && grep -q "Plan Approval:\*\* ask" .agents/board.md'
+S="$(cmd /status)"
+check "/status keeps 'running' and 'automatic' apart"                       'grep -q "đang chạy" <<<"$S" && grep -q "Chế độ tự động: \*\*TẮT" <<<"$S"'
+cmd /stop >/dev/null
+R="$(cmd /automode)"
+check "/stop pauses; /automode says so"                                     '[[ "$(envval AUTO_MODE)" == false ]] && grep -q "tạm dừng" <<<"$R"'
 python3 - <<'PY'
 p='.agents/board.md'; s=open(p).read()
-t="- [ ] `T01` [pending] Việc một (slug: `task-01-a`)\n- [ ] `T02` [BLOCKED] Việc hai (slug: `task-02-b`)\n"
+t="- [ ] `T02` [BLOCKED] Việc hai (slug: `task-02-b`)\n"
 open(p,'w').write(s.replace("## Checklist & Tasks\n","## Checklist & Tasks\n\n"+t,1))
 PY
-R="$(cmd /automode on)"
-check "on with waiting tasks counts them and flags BLOCKED ones" 'grep -q "2 việc" <<<"$R" && grep -q "1 task đang BLOCKED" <<<"$R" && grep -q "Current Phase:\*\* RUNNING" .agents/board.md'
-cmd /automode off >/dev/null
 
 echo "/config:"
 R="$(cmd /config)"

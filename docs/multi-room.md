@@ -24,7 +24,7 @@ Telegram Topic #b ─┼─► bridge-bot ◄─ files ─►┤
 
 ## Flow in AUTO_MODE
 
-1. `/task <checklist>` (old name `/auto` still works) → one task per line (bullets and numbers are stripped), written as `[pending]` on `board.md`; `staging` is created from `main`. It only adds tasks: turn the autopilot on with `/automode on` (it keeps whatever state you left it in). Set `AUTO_SPLIT="claude"` in `room.env` to let Claude split a free-form request instead.
+1. `/task <checklist>` (old name `/auto` still works) → one task per line (bullets and numbers are stripped), written as `[pending]` on `board.md`; `staging` is created from `main`. It also starts the work. `/automode on|off` only decides whether plans are approved automatically or by you; shipping always needs you. Set `AUTO_SPLIT="claude"` in `room.env` to let Claude split a free-form request instead.
 2. For each task, the daemon runs one step at a time (state lives on `board.md`):
 
    | State | Who acts | Next state |
@@ -119,7 +119,7 @@ Common flags: `--agents` asks Claude once to **draft `AGENTS.md`** from the repo
 `--no-start` only prepares the room, `--yes` answers the confirmation. Without `--topic`, `kit` explains how to get one and asks for it; without `--port` it guesses from `package.json`.
 
 The only manual steps left for a new project: create the Topic in Telegram and read its id (type `/status` in the new Topic: the bot answers `Topic N chưa có phòng nào`),
-review `AGENTS.md`, and set up Playwright if the project should verify in the browser. Then, in the Topic: `/health`, then `/task <task>` and `/automode on`.
+review `AGENTS.md`, and set up Playwright if the project should verify in the browser. Then, in the Topic: `/health`, then `/task <task>`.
 `tools/test-kit.sh` is the regression test of the command (temporary folders, fake `gh` and `claude`, nothing real is touched).
 
 Under the hood `kit add` is `install.sh` + `agent-room.sh init` + the CLAUDE.md/room.env patch + commit + `agent-room.sh start`, so the individual scripts still work on their own:

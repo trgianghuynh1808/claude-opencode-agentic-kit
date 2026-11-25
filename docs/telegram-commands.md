@@ -20,12 +20,12 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 | Command | Effect |
 |---|---|
-| `/task <checklist>` | One item per line; only adds tasks (the autopilot state is kept, `/automode on` starts it). `/auto` is the old name. Plain text without a command gets a canned reply (no Claude call) |
+| `/task <checklist>` | One item per line; adds the tasks **and starts working** (it also resumes after a `/stop`). `/auto` is the old name. Plain text without a command gets a canned reply (no Claude call) |
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
 | `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
-| `/automode on\|off` | Turn the autopilot on or off without adding tasks (`off` is the same as `/stop`). `on` says how many tasks are waiting, flags BLOCKED ones, and warns if the OpenCode watcher is not running. With no argument it reports the state |
+| `/automode on\|off` | **Who approves plans.** `on` (default): a plan that passes the automatic check goes straight to OpenCode; you are asked only for risky plans. `off`: every plan comes to you as a card first. **It never stops the work**: planning, coding, Verify and merging into `staging` carry on, and **shipping always needs you**. With no argument it reports the mode and whether the room is running or paused. Same switch as `/config approval auto\|ask` |
 | `/config` · `/config <key> <value>` | Show or change the settings that decide how the room behaves, from chat. Keys: `approval` (`ask`\|`auto`), `links` (`on`\|`off`), `split` (`lines`\|`claude`), `chat` (`on`\|`off`), `model_manager`, `model_techlead` (`haiku`, `sonnet`, `opus`, an id, or `default`), `fix_cycles` (1 to 5), `keep_shipped` (0 to 50). Values are validated; ports, topic ids and branches **cannot** be changed from chat. Effective from the next step, logged in the board's Activity Log |
 | `/approve [Tn]` · `/revise <feedback>` · `/reject [Tn]` | Answer the **plan card** (below) without the buttons: approve the plan waiting for you, ask the Tech Lead to change it, or cancel the task. `Tn` is optional when only one plan is waiting |
 | `/plan <question>` | **Plan mode**: ask about the project, analyse an idea, get a plan; Tech Lead reads the code and the Manager sends you one summary. Read-only: no task, no branch, no commit, nothing is changed (see [Plan mode](#plan-mode-plan-ask-without-creating-tasks)) |
@@ -52,7 +52,7 @@ Fresh context is automatic: every Tech Lead call is a new `claude -p` process (n
 - **Blocked** (touches `.env`, deletes data, stuck after the fix cycles): the task is `BLOCKED`, the room stays on; `/resume` tries it again.
 Softer doubts (more than 8 steps, a lockfile, no test command) are approved with a note for you. With `PLAN_APPROVAL="ask"` every plan waits for you (card below) and the queue waits too. The daemon always finishes the running task first, then approved plans, then new tasks.
 
-**`/task`** (formerly `/auto`; the old name still works) adds tasks, one per line. It is no longer "auto": whether plans need your approval depends on `PLAN_APPROVAL`, and the autopilot itself is `/automode on|off`.
+**Two separate switches.** *Automatic mode* (`/automode`) only decides who approves plans. *Running or paused* is `/stop` and `/resume` (or an automatic pause when something is stuck). Turning automatic mode off therefore never makes the room stop: it just asks you at the plan and at the ship. `/task` (formerly `/auto`, the old name still works) adds tasks and starts the work.
 
 **Plan approval card.** When the Tech Lead has written a plan, you get **one card with the whole plan**: goals and decisions made, every step with its difficulty (and how many of each), the test cases (names only), the files it will touch, the Verify mode and what the automatic check found. Three buttons: **✅ Duyệt** (the plan is committed as `APPROVED_BY_USER` and handed to OpenCode), **✏️ Sửa plan** (type `/revise <góp ý>`: the Tech Lead edits the plan on its branch according to your feedback, committed as `plan(rev-N)`, and you get a new card) and **❌ Hủy** (the task is cancelled; its branch is kept). While it waits, the task is in state `awaiting_plan` and **nothing costs anything** (no Claude call, no OpenCode). A plan the automatic check **blocks** (for example it touches `.env`) gets the same card without buttons and is blocked as before. Set `PLAN_APPROVAL="auto"` in `.agents/room.env` for the previous hands-off behaviour (same card, no buttons, the daemon checks and approves by itself). `tools/test-plan-approval.sh` covers it.
 
@@ -66,7 +66,7 @@ Softer doubts (more than 8 steps, a lockfile, no test command) are approved with
 
 ## Plan mode (`/plan`): ask without creating tasks
 
-`/task` turns your text into tasks (and `/automode on` starts the coding). When you only want information, an opinion or a plan, use:
+`/task` turns your text into tasks and starts the coding. When you only want information, an opinion or a plan, use:
 
 ```
 /plan Project này đang có những màn hình nào, và thêm chức năng upload ảnh thì động tới file nào?

@@ -261,7 +261,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/task <việc cần làm>` · giao việc, mỗi dòng một việc (`/auto` vẫn dùng được)\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật hoặc tắt chế độ tự động\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/task <việc cần làm>` · giao việc, mỗi dòng một việc (`/auto` vẫn dùng được)\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật: tự duyệt plan · tắt: bạn duyệt từng plan\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
     return;
   }
   if (command === "/plan" && !m?.[2]?.trim()) {
@@ -576,7 +576,7 @@ if (!DISCOVERY) {
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
     { command: "plan", description: "Hỏi đáp, phân tích project (chỉ đọc, không sửa gì)" },
-    { command: "automode", description: "Bật hoặc tắt chế độ tự động: /automode on|off" },
+    { command: "automode", description: "Tự duyệt plan (on) hay bạn duyệt (off): /automode on|off" },
     { command: "config", description: "Xem hoặc đổi cấu hình: /config approval auto" },
     { command: "approve", description: "Duyệt plan đang chờ" },
     { command: "revise", description: "Nhờ Tech Lead sửa plan: /revise <góp ý>" },
