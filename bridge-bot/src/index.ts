@@ -16,7 +16,7 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 // Discovery mode: without ADMIN_USER_ID/TELEGRAM_CHAT_ID the bot only replies with the ids to copy into .env.
-const DISCOVERY = !Number.isFinite(ADMIN_USER_ID) || !Number.isFinite(CHAT_ID);
+const DISCOVERY = !ADMIN_USER_ID || !CHAT_ID || !Number.isFinite(ADMIN_USER_ID) || !Number.isFinite(CHAT_ID);
 
 interface Room { topicId: number; name: string; path: string }
 interface OutboxMessage { text?: string; images?: string[]; requires?: string }
