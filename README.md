@@ -14,7 +14,7 @@ Optional: **[multi-room mode](#multi-room-mode-telegram--manager)** runs this un
 
 > **Language note:** the scripts print messages in Vietnamese, and a few conventions use Vietnamese words:
 > difficulty labels `[dễ]` = easy, `[vừa]` = medium, `[khó]` = hard; task-file sections such as
-> `Mục tiêu` (Goals), `Ngữ cảnh` (Context), `Trạng thái hiện tại` (Current status),
+> `Mục tiêu` (Goals), `Ý tưởng` (Idea), `Lưu ý` (Notes), `Ngữ cảnh` (Context), `Trạng thái hiện tại` (Current status),
 > `Đã thử mà không được` (Tried, didn't work), `Số liệu` (Metrics). Keep these exact strings — the scripts look for them.
 
 ---
@@ -204,6 +204,7 @@ Template: [`template/.agents/tasks/_TEMPLATE.md`](template/.agents/tasks/_TEMPLA
 # Task: Move the bowl/plate/cup line to the end of the recipe
 
 ## Mục tiêu                       ← Goals
+## Ý tưởng                        ← Idea: 2-4 lines on the approach (shown on the plan card)
 ## Quyết định đã chốt             ← Decisions made
 ## Ngữ cảnh                       ← Context: files/functions/types Claude already found, so OpenCode doesn't re-explore
 ## Plan
@@ -217,6 +218,7 @@ Template: [`template/.agents/tasks/_TEMPLATE.md`](template/.agents/tasks/_TEMPLA
 ## Verify                         ← filled by the Verify phase; last line VERIFY: PASS|FAIL
 (top of file) Verify mode: light  ← none | light | full
 ## Đã thử mà không được           ← what was tried and failed, so the next agent doesn't repeat it
+## Lưu ý                          ← notes for the approver (optional; lines starting with `Lưu ý:` elsewhere count too)
 ## Số liệu                        ← metrics (time, quota)
 ```
 
@@ -376,7 +378,7 @@ Optional. Turns the 2-agent kit into three tiers that run unattended, for severa
 
 | Tier | Agent | Runs as | Job |
 |---|---|---|---|
-| Manager | Code first, Claude only for judgement | `scripts/room-ops.py` (bash/Python, no AI); `claude -p` with `.agents/MANAGER.md` only when needed | Splits `/auto` into tasks, checks and approves plans (guardrails), reports, ships on `/ship`. Calls Claude only for plans the automatic check is unsure about |
+| Manager | Code first, Claude only for judgement | `scripts/room-ops.py` (bash/Python, no AI); `claude -p` with `.agents/MANAGER.md` only when needed | Splits `/task` into tasks, checks and approves plans (guardrails), holds risky ones for you, reports, ships on `/ship`. Calls Claude only for free-form chat (off by default) and `/plan` |
 | Tech Lead | Claude Code | `claude -p` (headless), `CLAUDE.md` section AUTO_MODE | Plans, verifies, reviews, squash-merges into `staging` |
 | Senior Dev | OpenCode | `watch-tasks.sh` → `run-task.sh` | Implements and runs tests, as in the single-project mode |
 
@@ -394,22 +396,28 @@ Telegram Topic #b ─┼─► bridge-bot ◄─ files ─►┤
 
 ### Flow in AUTO_MODE
 
-1. `/auto <checklist>` → one task per line (bullets and numbers are stripped), written as `[pending]` on `board.md`; `staging` is created from `main`. Set `AUTO_SPLIT="claude"` in `room.env` to let Claude split a free-form request instead.
+1. `/task <checklist>` (old name `/auto` still works) → one task per line (bullets and numbers are stripped), written as `[pending]` on `board.md`; `staging` is created from `main`. It only adds tasks: turn the autopilot on with `/automode on` (it keeps whatever state you left it in). Set `AUTO_SPLIT="claude"` in `room.env` to let Claude split a free-form request instead.
 2. For each task, the daemon runs one step at a time (state lives on `board.md`):
 
    | State | Who acts | Next state |
    |---|---|---|
-   | `pending` | Tech Lead (Claude) writes the plan on branch `task/<slug>` (no hand-off yet) | `plan_ready` |
-   | `plan_ready` | Code checks the plan: `OK` → approved and handed off, `BLOCK` → blocked, `REVIEW` → Claude Manager decides | `in_progress` (or `BLOCKED`) |
+   | `pending` | Tech Lead (Claude) writes the plan on branch `task/<slug>` (no hand-off yet). If context is missing it asks a question instead | `plan_ready` (or `needs_info`) |
+   | `plan_ready` | Code checks the plan and sends the **plan card**. `PLAN_APPROVAL=auto`: `OK`/`REVIEW` → approved and handed off, `CRITICAL` → held, `BLOCK` → blocked. `ask`: always held | `in_progress`, `awaiting_plan`, or `BLOCKED` |
+   | `awaiting_plan` | You: ✅ Duyệt / ✏️ Sửa plan / ❌ Hủy (or `/approve`, `/revise`, `/reject`). Costs nothing while it waits | `in_progress` (or `approved` if another task is running), `revise`, `cancelled` |
+   | `needs_info` | You answer with `/revise Tn <information>` | `pending` (plan is made again) |
+   | `revise` | Tech Lead edits the plan according to your feedback (`plan(rev-N)` commit), a new card is sent | `plan_ready` |
+   | `approved` | Waits its turn; the daemon hands it off when nothing else is running | `in_progress` |
    | `in_progress` | The daemon itself waits for OpenCode (reads `.agents/status`); when it is `done` or `stuck`, Tech Lead (Claude) verifies, reviews, fixes (max `MAX_FIX_CYCLES`) and squash-merges into `staging` | `done` |
 
-   Plan checks (`room-ops.py check-plan`): **BLOCK** = no steps, touches `.env`, `DROP`/`TRUNCATE`/`DELETE FROM`. **REVIEW** = more than 8 steps, a step without a difficulty label, secrets/credentials, migrations, CI/deploy config, lockfiles, `rm -rf`, no concrete test command. Anything else is approved without calling Claude.
+   The daemon works in this order: the task already running → plans you approved → new tasks. With `PLAN_APPROVAL=auto`, tasks waiting on you (`awaiting_plan`, `needs_info`, `BLOCKED`) are passed over so the queue keeps moving.
+
+   Plan checks (`room-ops.py check-plan`): **BLOCK** = no steps, touches `.env`, `DROP`/`TRUNCATE`/`DELETE FROM`. **CRITICAL** = secrets/credentials, migrations, CI/deploy config, `rm -rf`. **REVIEW** = more than 8 steps, a step without a difficulty label, lockfiles, no concrete test command (approved with a note). Anything else is `OK`.
    The plan check does not compare the plan with the task title (that needs judgement); keep tasks small and check the plan in the log if a task is risky.
 
 3. All tasks done → phase `AWAITING_SHIP_APPROVAL`; you get the evidence and then the approval card, all built by code:
    - for each task that has verification pictures, a `📸 T05 · title` message from the Tech Lead with **that task's own pictures only** (the ones captured while it was verified: recorded in its time window, or named `task-NN-*.png`); a task with no pictures sends none;
    - the approval card with the **Ship** button: tasks (each saying how many pictures are above, or that Verify was skipped / nothing was captured), and the commits not yet on `main`. Pictures from earlier work or other tasks are never attached.
-4. `/ship` merges `staging` into `main` and pushes. Nothing reaches `main` without it.
+4. `/ship` merges `staging` into `main` and pushes. Nothing reaches `main` without it. The merge commit names what is shipped (`Ship T10: <title>`, or `Ship 3 task: T08, T09, T10` with one line per task in the body).
 
 **Fresh context per call.** Every `claude -p` call is a new process with an empty context window. State is passed through files
 (`board.md`, the task file, git, `CLAUDE.md`/`AGENTS.md`), never through memory, so anything the next step needs must be written there.
@@ -483,7 +491,7 @@ Common flags: `--agents` asks Claude once to **draft `AGENTS.md`** from the repo
 `--no-start` only prepares the room, `--yes` answers the confirmation. Without `--topic`, `kit` explains how to get one and asks for it; without `--port` it guesses from `package.json`.
 
 The only manual steps left for a new project: create the Topic in Telegram and read its id (type `/status` in the new Topic: the bot answers `Topic N chưa có phòng nào`),
-review `AGENTS.md`, and set up Playwright if the project should verify in the browser. Then, in the Topic: `/health`, then `/auto <task>`.
+review `AGENTS.md`, and set up Playwright if the project should verify in the browser. Then, in the Topic: `/health`, then `/task <task>` and `/automode on`.
 `tools/test-kit.sh` is the regression test of the command (temporary folders, fake `gh` and `claude`, nothing real is touched).
 
 Under the hood `kit add` is `install.sh` + `agent-room.sh init` + the CLAUDE.md/room.env patch + commit + `agent-room.sh start`, so the individual scripts still work on their own:
@@ -543,7 +551,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 | Command | Effect |
 |---|---|
-| `/task <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command gets a canned reply (no Claude call) |
+| `/task <checklist>` | One item per line; only adds tasks (the autopilot state is kept, `/automode on` starts it). `/auto` is the old name. Plain text without a command gets a canned reply (no Claude call) |
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
@@ -555,10 +563,10 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/clear` | Housekeeping (asks you to confirm with two buttons, idle rooms only): archives the board to `.agents/board-archive/` (newest 10 kept) and resets it, and deletes per-task state (`status`, `progress`, `queue`), old `inbox`/`outbox` messages, `/plan` Q&A files and `manager.sig`. Task numbers keep going (the next number is computed from the board, the plan files and the `task/*` branches, so branch and plan names are never reused). **Never touched:** `room.env`, plan files in git, screenshots, logs, `usage.log` |
 | `/clearlog [n]` | Truncates `.agents/run.log` and `.agents/logs/*` to their last `n` lines (default 200, `0` empties them); `usage.log` is kept. Idle rooms only. The logs grow forever otherwise (`run.log` of one project reached 3.6 MB) |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
-| `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button |
+| `/ship` | Merge `staging` → `main` (commit message names the shipped tasks) and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button. It refuses while the working tree has uncommitted files |
 | `/newroom <name> <port> [private] [local] [agents]` | Create a Topic `project-<name>` and a whole room (see [Create a room from Telegram](#create-a-room-from-telegram-newroom)); usable in any Topic, even General |
 
-**Pre-flight.** Before it starts a task, the daemon checks that the OpenCode watcher is alive (`.agents/watcher.pid`). If not, it turns AUTO_MODE off and tells you, instead of leaving the hand-off stuck in `queued`. Run `/health` before `/auto` to see everything at once.
+**Pre-flight.** Before it starts a task, the daemon checks that the OpenCode watcher is alive (`.agents/watcher.pid`). If not, it turns AUTO_MODE off and tells you, instead of leaving the hand-off stuck in `queued`. Run `/health` before `/task` to see everything at once.
 
 **Clean-up after `/ship`** (code, no AI; a failure here never undoes the ship, and the result is appended to the ship reply as `🧹 Đã dọn: …`):
 - `.agents/status/*` and `.agents/progress/*` of every shipped task are deleted.
@@ -589,7 +597,7 @@ Softer doubts (more than 8 steps, a lockfile, no test command) are approved with
 
 ### Plan mode (`/plan`): ask without creating tasks
 
-`/auto` turns your text into tasks and starts coding. When you only want information, an opinion or a plan, use:
+`/task` turns your text into tasks (and `/automode on` starts the coding). When you only want information, an opinion or a plan, use:
 
 ```
 /plan Project này đang có những màn hình nào, và thêm chức năng upload ảnh thì động tới file nào?
@@ -599,7 +607,7 @@ Only two agents work, together, and you get **one summary message**:
 
 1. The Manager acknowledges the question and hands it to the Tech Lead.
 2. The Tech Lead (Claude) reads the repo (`AGENTS.md`, `CLAUDE.md`, the board and whatever code it needs) and writes a technical analysis with file paths, risks and what it is unsure about.
-3. The Manager (Claude, no tools) merges that with the board into a friendly message: short answer, **Góc nhìn Tech Lead**, and, when there is a concrete way to do it, ready-to-copy `/auto …` lines (only suggestions, nothing is started).
+3. The Manager (Claude, no tools) merges that with the board into a friendly message: short answer, **Góc nhìn Tech Lead**, and, when there is a concrete way to do it, ready-to-copy `/task …` lines (only suggestions, nothing is started).
 
 **It cannot change anything.** The Tech Lead runs with `--tools "Read,Grep,Glob"`: it has no tool that can write a file or run a command (a test asked Claude to create and delete files on purpose and it could not), and `--dangerously-skip-permissions` is not used. The Manager step has no tools at all. No OpenCode, no task, no branch, no commit.
 It runs in the background, so the room keeps answering `/status` and keeps working on tasks meanwhile; one question at a time (a second `/plan` gets a polite "wait"). A question costs two Claude calls (turn caps: `MAX_TURNS_PLAN` for the reading, `MAX_TURNS_MANAGER` for the summary; models from `MODEL_TECHLEAD` / `MODEL_MANAGER`) and shows up in `/usage` as `plan: tìm hiểu` and `plan: tổng hợp`.
@@ -630,8 +638,8 @@ Logs in `.agents/logs/` (progress messages are not logged, they go straight to T
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
-`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `PLAN_APPROVAL` (`auto`|`ask`), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
-Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `PLAN_APPROVAL` (`auto`|`ask`, default `auto`), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
+Rooms created before these keys existed use the defaults above (`kit upgrade` adds the missing keys). Most of them can be changed from chat with `/config` and are mirrored in the board header, see `/status`. Runtime folders: `.agents/plan-feedback/` (your `/revise` notes and the Tech Lead's questions), `.agents/progress/`, `.agents/notices/`.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
 
@@ -640,7 +648,7 @@ staging branch. Without a `room.env` everything behaves as in the single-project
 A task costs about two Claude calls (Tech Lead plan, Tech Lead verify/review/merge), plus one more per fix cycle; OpenCode does the heavy coding.
 Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode: light` unless a task needs `full`. What keeps the cost down:
 
-- **Mechanical work is code, not AI:** `/status`, `/stop`, `/resume`, `/ship`, `/usage`, plain-text replies, `/auto` splitting, plan checks, the ship report. A room with nothing to do costs nothing.
+- **Mechanical work is code, not AI:** `/status`, `/stop`, `/resume`, `/ship`, `/usage`, plain-text replies, `/task` splitting, plan checks, the ship report. A room with nothing to do costs nothing.
 - **The daemon waits for OpenCode**, not Claude: Tech Lead is called again only when OpenCode is `done` or `stuck`, with a fresh context.
 - **Model per role** in `.agents/room.env`: `MODEL_MANAGER`, `MODEL_TECHLEAD` (`haiku`, `sonnet`, `opus` or a full id; empty = the CLI default).
 - **Turn cap per call:** `MAX_TURNS_MANAGER` (20), `MAX_TURNS_TECHLEAD` (150); a call that hits it fails instead of running on.
@@ -685,6 +693,7 @@ claude-opencode-agentic-kit/
 │   ├── test-kit.sh                 # regression test of the kit command
 │   ├── test-plan-mode.sh           # regression test of /plan (read-only Q&A)
 │   ├── test-clear.sh               # regression test of /clear and /clearlog
+│   ├── test-finalize-shots.sh      # per-task pictures in the ship report
 │   ├── test-step-report.sh         # one Dev message per step, commit links, push once per step
 │   ├── test-techlead-report.sh     # one Tech Lead report per task, pictures sent once
 │   ├── test-notes.sh               # Lưu ý, ship-card checks, review notes, non-silent notices
@@ -698,6 +707,7 @@ claude-opencode-agentic-kit/
 │   └── .agents/
 │       ├── config.sh
 │       └── tasks/_TEMPLATE.md
+├── assets/avatars/                 # cute avatars for the three bots (for BotFather /setuserpic)
 ├── bridge-bot/                     # Telegram Topics <-> .agents/inbox & outbox (Node/TypeScript, grammy)
 │   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
 │   ├── src/format.ts               # light markdown -> Telegram HTML, line-based chunking

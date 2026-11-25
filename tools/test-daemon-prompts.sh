@@ -47,6 +47,6 @@ echo "plan_mgr_prompt:"
 p="$(plan_mgr_prompt "CAU_HOI_X" "BOARD_Y" "PHAN_TICH_Z")"
 check "không rỗng"                    '[[ -n "$p" ]]'
 check "chứa cả ba đầu vào"            '[[ "$p" == *CAU_HOI_X* && "$p" == *BOARD_Y* && "$p" == *PHAN_TICH_Z* ]]'
-check "yêu cầu mục /auto gợi ý"       '[[ "$p" == *"/auto"* ]]'
+check "yêu cầu mục /task gợi ý"       '[[ "$p" == *"/task"* ]]'
 
 [[ $fail == 0 ]] && echo "OK" || { echo "FAILED"; exit 1; }
