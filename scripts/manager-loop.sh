@@ -221,7 +221,6 @@ tick_auto() {
       log "⚙ $id kiểm tra plan: $verdict"
       case "$verdict" in
         OK) python3 "$OPS" approve "$slug" >>"$LOGDIR/ops.log" 2>&1 \
-              && say_user "✅ $id: plan hợp lệ, đã tự duyệt và giao OpenCode." \
               || log "⚠ $id: duyệt/hand-off lỗi (task đã được đánh dấu BLOCKED, xem ops.log)" ;;
         BLOCK*) python3 "$OPS" block "$id" "${verdict#BLOCK: }" >/dev/null 2>>"$LOGDIR/ops.log" ;;
         *) run_claude manager "$(manager_prompt APPROVE_PLAN "Task: $id (slug: $slug)"$'\n'"Kiểm tra tự động nghi ngờ: ${verdict#REVIEW: }")" "$id duyệt plan" ;;

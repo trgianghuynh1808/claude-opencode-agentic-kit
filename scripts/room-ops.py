@@ -400,6 +400,9 @@ def cmd_approve(slug):
         rc, out = git("commit", "-m", f"plan: approved {slug}")
         if rc != 0:
             return cmd_block(t["id"], f"commit duyệt plan lỗi: {out[:200]}")
+    # Báo user TRƯỚC khi hand-off: ngay khi job vào queue, watcher có thể gửi "Bắt đầu code" trong vòng vài giây,
+    # nên tin này phải nằm trong outbox trước đó để thứ tự hiển thị đúng.
+    emit("manager", f"✅ {t['id']}: plan hợp lệ, đã tự duyệt, đang giao OpenCode.")
     pr = subprocess.run(["scripts/handoff.sh", p], capture_output=True, text=True)
     if pr.returncode != 0:
         return cmd_block(t["id"], "hand-off lỗi: " + (pr.stdout + pr.stderr).strip()[-300:])

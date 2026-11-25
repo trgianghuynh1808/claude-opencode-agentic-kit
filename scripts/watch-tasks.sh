@@ -26,7 +26,8 @@ notify() {
 say_user() {   # role text — báo ra Telegram qua .agents/outbox khi project là một phòng (có room.env)
   [[ -f .agents/room.env ]] || return 0
   mkdir -p .agents/outbox
-  local f=".agents/outbox/$(date +%s)-dev-$RANDOM.json"
+  # tên file = nano giây, cùng kiểu với room-ops.py: bridge gửi theo thứ tự tên nên các vai phải dùng chung đơn vị
+  local f; f=".agents/outbox/$(python3 -c 'import time; print(time.time_ns())')-dev.json"
   python3 -c 'import json,sys; print(json.dumps({"from": sys.argv[1], "text": sys.argv[2]}, ensure_ascii=False))' "$1" "$2" > "$f.tmp" \
     && mv "$f.tmp" "$f" || true
 }
