@@ -490,7 +490,8 @@ staging branch. Without a `room.env` everything behaves as in the single-project
 | Bot is silent | The bridge prints `Ignored message: from.id=… chat.id=…` when ids differ from `.env`; fix `.env` (group ids start with `-100`) |
 | Bot starts in discovery mode | `ADMIN_USER_ID` or `TELEGRAM_CHAT_ID` is empty or malformed (quotes, spaces, comments) |
 | `Topic N chưa đăng ký` | No room uses this Topic yet: run `agent-room.sh init --topic N --port <PORT>` in the project |
-| `/status` gets `đã nhận` but no report | The room is not running (`agent-room.sh status`), or `claude` is missing |
+| Message stays on 👀, no report | The bridge wrote it but the room is not handling it: `agent-room.sh status`, is `claude` installed? |
+| No 👀 at all | The bridge ignored the message (see `Ignored message` above) or the bot cannot react: check `reaction failed:` in `bridge-bot/bridge.sh logs` |
 | Two bridges, Telegram error 409 | Another bridge process is running (an old terminal); stop it, keep only `bridge.sh` |
 | `Working tree chưa sạch` on hand-off | Something in the project is uncommitted; commit it, then `/resume` |
 | Room stops itself | A task was stuck or BLOCKED; read `.agents/logs/` and the board, then `/resume` or `/stop` |
