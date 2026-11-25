@@ -4,8 +4,8 @@
 #   ./install.sh /path/to/your-project            # cài lần đầu
 #   ./install.sh /path/to/your-project --force    # ghi đè cả file cấu hình/template đã có
 #
-# Luôn cập nhật:  scripts/*.sh (run-task, watch-tasks, log-gaps, handoff, wait-task, notify, room-env,
-#                 manager-loop, agent-room), .agents/MANAGER.md
+# Luôn cập nhật:  scripts/*.sh (run-task, watch-tasks, log-gaps, handoff, wait-task, notify,
+#                 room-env, manager-loop, agent-room, board-view, room-ops.py), .agents/MANAGER.md
 # Chỉ tạo nếu chưa có (trừ khi --force):
 #   CLAUDE.md, AGENTS.md, .agents/config.sh, .agents/tasks/_TEMPLATE.md
 

@@ -9,6 +9,9 @@ A small kit (a few bash scripts plus instruction files for the agents) that spli
 
 The goal: **make your Claude quota last several times longer**, while Claude still controls quality at the start (the plan) and the end (the review).
 
+Optional: **[multi-room mode](#multi-room-mode-telegram--manager)** runs this unattended for several projects at once, controlled from Telegram Topics
+(a Manager that is mostly plain code, a Tech Lead on Claude, OpenCode as the developer), with progress reports, a ship approval step and per-call usage tracking.
+
 > **Language note:** the scripts print messages in Vietnamese, and a few conventions use Vietnamese words:
 > difficulty labels `[dễ]` = easy, `[vừa]` = medium, `[khó]` = hard; task-file sections such as
 > `Mục tiêu` (Goals), `Ngữ cảnh` (Context), `Trạng thái hiện tại` (Current status),
@@ -557,7 +560,7 @@ claude-opencode-agentic-kit/
 │   ├── log-gaps.sh                 # find slow spots in run.log
 │   ├── handoff.sh                  # Claude → OpenCode: queue a task
 │   ├── room-env.sh                 # load .agents/room.env (port, URL, branches)
-│   ├── manager-loop.sh             # multi-room: Manager daemon (inbox, board, Tech Lead dispatch)
+│   ├── manager-loop.sh             # multi-room: daemon (inbox, board state machine, waits for OpenCode, calls Claude only when needed)
 │   ├── agent-room.sh               # multi-room: init | start | stop | status for a project room
 │   ├── board-view.sh               # multi-room: board pane of the tmux dashboard (redraws only on change)
 │   ├── room-ops.py                 # multi-room: deterministic commands, plan checks, ship, usage log (no AI)
@@ -575,7 +578,7 @@ claude-opencode-agentic-kit/
 │   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
 │   └── .env.example
 ├── prompts/                        # prompt templates (Vietnamese)
-│   ├── MANAGER.md                  # system prompt of the Manager (installed to .agents/MANAGER.md)
+│   ├── MANAGER.md                  # Manager prompt for judgement calls only (installed to .agents/MANAGER.md)
 │   ├── generate-agents-md.md
 │   ├── plan-task.md
 │   └── review-and-ship.md
