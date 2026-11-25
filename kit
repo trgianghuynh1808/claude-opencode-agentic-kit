@@ -88,7 +88,7 @@ preflight() {
   [[ ! -f "$p/.agents/room.env" ]] || die "$p đã là một phòng. Để cập nhật dùng: kit upgrade $(basename "$p")"
   [[ "$(git -C "$p" rev-parse --abbrev-ref HEAD)" == "main" ]] || warn "Nhánh hiện tại không phải main ($(git -C "$p" rev-parse --abbrev-ref HEAD))"
   if (( START )) && [[ ! -f "$KIT_DIR/bridge-bot/.env" ]]; then
-    die "Chưa có bridge-bot/.env (BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID). Xem README, hoặc thêm --no-start."
+    die "Chưa có bridge-bot/.env (BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID). Xem README.md và docs/multi-room.md, hoặc thêm --no-start."
   fi
 }
 

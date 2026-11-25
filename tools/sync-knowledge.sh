@@ -19,7 +19,7 @@ KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_NAME="kit-source.md"
 
 # Files listed in the structure tree but not embedded (shell glob, * also matches /)
-EXCLUDE="LICENSE README.md .gitignore .DS_Store examples/opencode-agents/* $OUT_NAME"
+EXCLUDE="LICENSE README.md docs/* assets/* .gitignore .DS_Store examples/opencode-agents/* $OUT_NAME"
 
 # Embed order: earlier patterns first; included files matching no pattern go last (sorted)
 ORDER="install.sh

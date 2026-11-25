@@ -65,7 +65,7 @@ When the user asks for a review: read the task file (including "Test status" and
 When shipping (from Autopilot, or when the user says "ship"):
 
 1. Make sure the working tree is clean and the project's checks (see Commands in AGENTS.md) pass.
-   Double-check `README.md` (and any other doc the change touches) against the code, per "Documentation Rules" in AGENTS.md. If it is out of date, update it (in the same task, or as a separate `docs:` commit before shipping) — do not ship with stale docs.
+   Double-check `README.md` and `docs/` (and any other doc the change touches) against the code, per "Documentation Rules" in AGENTS.md. If it is out of date, update it (in the same task, or as a separate `docs:` commit before shipping) — do not ship with stale docs.
 2. Squash the branch into one commit on main:
    `git checkout main && git pull --ff-only && git merge --squash task/<slug>`
 3. Commit with one Conventional Commit message summarizing the whole task (e.g. `feat(orders): show container line last in recipe`), with a short body listing the main changes and the test cases added. Do not mention the individual step commits or fix cycles.

@@ -105,13 +105,13 @@ done
 
 cat <<'EOF'
 
-Xong. Bước tiếp theo (chi tiết trong README):
+Xong. Bước tiếp theo (chi tiết trong README.md và docs/):
   1. Sửa .agents/config.sh: model, URL dev, lệnh kiểm tra.
   2. Điền AGENTS.md bằng prompts/generate-agents-md.md, đọc lại rồi commit.
   3. Cài Playwright Test nếu chưa có (xem examples/playwright.config.ts).
   4. Commit:  git add -A && git commit -m "chore: add claude-opencode-agentic-kit"
   5. (Tùy chọn) Chế độ nhiều phòng qua Telegram: scripts/agent-room.sh init --topic <ID> --port <PORT>
-     rồi scripts/agent-room.sh start — xem README mục "Multi-room mode".
+     rồi scripts/agent-room.sh start — xem docs/multi-room.md.
   6. Ô trái:  scripts/watch-tasks.sh      Ô phải:  claude (plan mode)
      Duyệt plan xong, Claude tự chạy tiếp: chờ OpenCode → verify → review → ship (Autopilot).
 EOF
