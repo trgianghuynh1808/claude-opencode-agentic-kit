@@ -1,6 +1,7 @@
 import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { chunk, toHtml } from "./format.js";
 import net from "node:net";
 import { execFile } from "node:child_process";
 
@@ -76,10 +77,16 @@ function isAdmin(ctx: Context): boolean {
   return ctx.from?.id === ADMIN_USER_ID && ctx.chat?.id === CHAT_ID;
 }
 
-function chunk(text: string, size = 4000): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
-  return out.length ? out : [""];
+type SendOpts = Parameters<Bot["api"]["sendMessage"]>[2];
+
+/** Send as HTML; if Telegram rejects the markup, resend the raw text so a message is never lost. */
+async function sendRich(api: Bot["api"], chatId: number, text: string, opts: SendOpts = {}) {
+  try {
+    return await api.sendMessage(chatId, toHtml(text), { ...opts, parse_mode: "HTML" });
+  } catch (err) {
+    if (/parse entities|can't parse/i.test((err as Error).message)) return api.sendMessage(chatId, text, opts);
+    throw err;
+  }
 }
 
 /** Resolve an image path from an outbox file; it must stay inside the room directory. */
@@ -126,43 +133,52 @@ async function readEnv(file: string): Promise<Record<string, string>> {
 async function health(room: Room): Promise<string> {
   const ag = path.join(room.path, ".agents");
   const env = await readEnv(path.join(ag, "room.env"));
-  const lines: string[] = [];
+  const infra: string[] = [];
+  const agents: string[] = [];
+  const tools: string[] = [];
   const problems: string[] = [];
-  const ok = (m: string) => lines.push(`✅ ${m}`);
-  const bad = (m: string, why: string) => { lines.push(`❌ ${m}`); problems.push(why); };
-  const warn = (m: string) => lines.push(`⚠️ ${m}`);
+  const ok = (arr: string[], m: string) => arr.push(`✅ ${m}`);
+  const bad = (arr: string[], m: string, why: string) => { arr.push(`❌ ${m}`); problems.push(why); };
+  const warn = (arr: string[], m: string) => arr.push(`⚠️ ${m}`);
 
-  ok("Bridge (đang trả lời bạn)");
-
+  ok(infra, "Bridge đang online (đang nói chuyện với bạn nè)");
   for (const [role, token, label] of [["techlead", process.env.BOT_TOKEN_TECHLEAD, "Bot Tech Lead"], ["dev", process.env.BOT_TOKEN_DEV, "Bot Senior Dev"]] as const) {
-    if (!token) { warn(`${label}: dùng bot chính (chưa có token riêng)`); continue; }
-    try { const me = await roleApis[role].getMe(); ok(`${label}: @${me.username}`); }
-    catch (e) { warn(`${label}: token lỗi (${(e as Error).message}) — tin của vai này sẽ không gửi được`); }
+    if (!token) { warn(infra, `${label}: đang dùng chung bot chính (chưa có token riêng)`); continue; }
+    try { const me = await roleApis[role].getMe(); ok(infra, `${label}: @${me.username}`); }
+    catch (e) { warn(infra, `${label}: token lỗi (${(e as Error).message}), tin của vai này sẽ không gửi được`); }
   }
 
   const mgr = await pidAlive(path.join(ag, "manager.lock"));
-  mgr ? ok(`Manager daemon (pid ${mgr})`) : bad("Manager daemon không chạy", "Manager daemon (agent-room.sh start)");
+  mgr ? ok(agents, `Manager daemon (pid ${mgr})`) : bad(agents, "Manager daemon đang ngủ đông", "Manager daemon (chạy `scripts/agent-room.sh start`)");
   const wat = await pidAlive(path.join(ag, "watcher.pid"));
-  wat ? ok(`Senior Dev watcher / OpenCode (pid ${wat})`) : bad("Senior Dev watcher không chạy", "watcher OpenCode (agent-room.sh start)");
+  wat ? ok(agents, `Senior Dev watcher / OpenCode (pid ${wat})`) : bad(agents, "Senior Dev watcher đang ngủ đông", "watcher OpenCode (chạy `scripts/agent-room.sh start`)");
 
   const cl = await run("claude", ["--version"]);
-  cl.ok ? ok(`claude ${cl.out}`) : bad("claude CLI không chạy được", "claude CLI");
+  cl.ok ? ok(tools, `claude ${cl.out}`) : bad(tools, "Không gọi được `claude` CLI", "claude CLI");
   const oc = await run("opencode", ["--version"]);
-  oc.ok ? ok(`opencode ${oc.out}`) : bad("opencode CLI không chạy được", "opencode CLI");
+  oc.ok ? ok(tools, `opencode ${oc.out}`) : bad(tools, "Không gọi được `opencode` CLI", "opencode CLI");
 
   const br = await run("git", ["rev-parse", "--abbrev-ref", "HEAD"], room.path);
   const dirty = await run("git", ["status", "--porcelain"], room.path);
   const n = dirty.out ? (await run("sh", ["-c", "git status --porcelain | wc -l"], room.path)).out.trim() : "0";
-  if (!br.ok) bad("Không phải git repo", "git repo");
-  else if (n !== "0") warn(`Git: nhánh ${br.out}, ${n} file chưa commit — hand-off sẽ bị chặn`), problems.push("cây git dơ");
-  else ok(`Git: nhánh ${br.out}, sạch`);
+  if (!br.ok) bad(tools, "Thư mục này không phải git repo", "git repo");
+  else if (n !== "0") { warn(tools, `Git: nhánh \`${br.out}\`, còn ${n} file chưa commit (hand-off sẽ bị chặn)`); problems.push("cây git đang dơ"); }
+  else ok(tools, `Git: nhánh \`${br.out}\`, sạch bong`);
 
   const port = Number(env.APP_PORT);
-  if (port) (await portOpen(port)) ? ok(`Dev server :${port}`) : warn(`Dev server :${port} chưa chạy (chỉ cần khi Verify trên trình duyệt)`);
+  if (port) (await portOpen(port)) ? ok(tools, `Dev server :${port} đang chạy`) : warn(tools, `Dev server :${port} chưa chạy (chỉ cần khi Verify trên trình duyệt)`);
 
-  lines.push("", `AUTO_MODE=${env.AUTO_MODE ?? "?"} · nhánh nền ${env.STAGING_BRANCH ?? "staging"}`);
-  lines.push(problems.length ? `❌ Chưa sẵn sàng: ${problems.join(", ")}` : "✅ Sẵn sàng nhận task");
-  return `🩺 Health · ${room.name}\n${lines.join("\n")}`;
+  const verdict = problems.length
+    ? `Chưa sẵn sàng đâu 😿 Còn thiếu: ${problems.join(", ")}`
+    : "Mọi thứ ổn áp, sẵn sàng nhận việc nha! 🚀";
+  return [
+    `🩺 **Health check** · ${room.name}`,
+    "", "**Hạ tầng**", ...infra,
+    "", "**Các agent**", ...agents,
+    "", "**Công cụ & dự án**", ...tools,
+    "", `Chế độ tự động: **${env.AUTO_MODE === "true" ? "BẬT" : "TẮT"}** · nhánh nền \`${env.STAGING_BRANCH ?? "staging"}\``,
+    "", verdict,
+  ].join("\n");
 }
 
 // ---------- inbound: Telegram -> .agents/inbox ----------
@@ -191,12 +207,12 @@ bot.on("message:text", async (ctx) => {
   }
   const topicId = ctx.message.message_thread_id;
   if (topicId === undefined) {
-    await ctx.reply("Hãy nhắn trong một Topic của project (General không có phòng).");
+    await sendRich(bot.api, ctx.chat.id, "Bạn nhắn trong **Topic của project** giúp mình nha 🙏 (khu General không có phòng nào hết).");
     return;
   }
   const room = (await loadRooms()).find((r) => r.topicId === topicId);
   if (!room) {
-    await ctx.reply(`Topic ${topicId} chưa đăng ký. Chạy scripts/agent-room.sh init --topic ${topicId} --port <PORT> trong project.`);
+    await sendRich(bot.api, ctx.chat.id, `Topic **${topicId}** chưa có phòng nào hết 🏠\nTrong project, chạy giúp mình:\n\`scripts/agent-room.sh init --topic ${topicId} --port <PORT>\``, { message_thread_id: topicId });
     return;
   }
 
@@ -204,15 +220,15 @@ bot.on("message:text", async (ctx) => {
   const m = text.match(/^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i);
   const command = m && COMMANDS.has(m[1].toLowerCase()) ? `/${m[1].toLowerCase()}` : null;
   if (command === "/health") {
-    await ctx.reply(await health(room), { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, await health(room), { message_thread_id: topicId });
     return;
   }
   if (m && !command) {
-    await ctx.reply("Lệnh hợp lệ: /auto <checklist>, /status, /stop, /resume, /ship, /health, /usage");
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main", { message_thread_id: topicId });
     return;
   }
   if (command === "/auto" && !m?.[2]?.trim()) {
-    await ctx.reply("Cách dùng: /auto <checklist> (mỗi dòng một việc).");
+    await sendRich(bot.api, ctx.chat.id, "Bạn cho mình biết việc cần làm nhé 📝\nCách dùng: `/auto <việc cần làm>`, mỗi dòng một việc.", { message_thread_id: topicId });
     return;
   }
 
@@ -239,7 +255,7 @@ async function sendOutbox(room: Room, msg: OutboxMessage): Promise<void> {
   const role: Role = msg.requires ? "manager" : (msg.from && msg.from in ROLE_LABEL ? msg.from : "manager");
   const api = roleApis[role];
   const opts = { message_thread_id: room.topicId } as const;
-  const title = `${ROLE_LABEL[role]} · ${room.name}`;
+  const title = `**${ROLE_LABEL[role]}** · ${room.name}\n`;
   const images = (msg.images ?? []).map((p) => safeImage(room, p)).filter((p): p is string => p !== null);
   const existing: string[] = [];
   for (const p of images) if (await fs.stat(p).then((s) => s.isFile()).catch(() => false)) existing.push(p);
@@ -251,7 +267,7 @@ async function sendOutbox(room: Room, msg: OutboxMessage): Promise<void> {
   const parts = chunk(`${title}\n${msg.text ?? ""}`);
   for (let i = 0; i < parts.length; i++) {
     const last = i === parts.length - 1 && existing.length === 0;
-    await api.sendMessage(CHAT_ID, parts[i], { ...opts, ...(last && keyboard ? { reply_markup: keyboard } : {}) });
+    await sendRich(api, CHAT_ID, parts[i], { ...opts, ...(last && keyboard ? { reply_markup: keyboard } : {}) });
   }
   if (existing.length === 1) {
     await api.sendPhoto(CHAT_ID, new InputFile(existing[0]), { ...opts, ...(keyboard ? { reply_markup: keyboard } : {}) });
@@ -259,7 +275,7 @@ async function sendOutbox(room: Room, msg: OutboxMessage): Promise<void> {
     for (let i = 0; i < existing.length; i += 10) {
       await api.sendMediaGroup(CHAT_ID, existing.slice(i, i + 10).map((p) => ({ type: "photo" as const, media: new InputFile(p) })), opts);
     }
-    if (keyboard) await api.sendMessage(CHAT_ID, "Duyệt ship?", { ...opts, reply_markup: keyboard });
+    if (keyboard) await sendRich(api, CHAT_ID, "Bạn duyệt ship luôn chứ? 👇", { ...opts, reply_markup: keyboard });
   }
 }
 

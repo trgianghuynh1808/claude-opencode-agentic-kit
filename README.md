@@ -438,6 +438,12 @@ The `🔧`, `↗` and `⛔` messages come from `run-task.sh` itself (it knows th
 Reported state is kept in `.agents/progress/<slug>.json` (git-ignored); if the daemon restarts in the middle of a task it continues from the current state instead of replaying old steps.
 Messages are produced as `.agents/outbox/*.json` with a `"from"` field (`manager` | `techlead` | `dev`; default `manager`).
 
+**Tone and format.** Messages are written in a friendly, relaxed Vietnamese ("mình" / "bạn", light emoji), split into short sections, with lists for tasks and steps.
+Producers write plain text with a tiny markdown subset (`**bold**`, `` `code` ``, `- ` bullets, `# ` headings) and the bridge converts it to Telegram HTML
+(`bridge-bot/src/format.ts`): everything else is escaped, so stray `<`, `>` or `&` are safe, long messages are split at line boundaries, and if Telegram still
+rejects the markup the raw text is sent instead, so a message is never lost. Step texts are trimmed at a word boundary without leaving a dangling backtick.
+Claude-written messages follow the same style (it is part of the daemon prompt and `.agents/MANAGER.md`). `cd bridge-bot && npm test` checks the converter.
+
 By default all three use the main bot and only the label differs. For separate identities (own name and avatar), create two more bots in BotFather,
 add them to the group as ordinary members (admin is not needed: they only send, and Group Privacy does not matter), and set `BOT_TOKEN_TECHLEAD` and `BOT_TOKEN_DEV` in `bridge-bot/.env`. They only send: commands, reactions and the Ship button
 stay on the main bot, so a message that needs approval is always sent by the Manager. The startup log shows which identity each role uses.
@@ -567,7 +573,8 @@ claude-opencode-agentic-kit/
 │   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
 │   └── notify.sh                   # desktop notification
 ├── tools/                          # kit maintenance only (not installed into projects)
-│   └── sync-knowledge.sh           # bundle the kit into kit-source.md for a Claude Project
+│   ├── sync-knowledge.sh           # bundle the kit into kit-source.md for a Claude Project
+│   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
 │   ├── CLAUDE.md
 │   ├── AGENTS.md
@@ -576,6 +583,7 @@ claude-opencode-agentic-kit/
 │       └── tasks/_TEMPLATE.md
 ├── bridge-bot/                     # Telegram Topics <-> .agents/inbox & outbox (Node/TypeScript, grammy)
 │   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
+│   ├── src/format.ts               # light markdown -> Telegram HTML, line-based chunking
 │   └── .env.example
 ├── prompts/                        # prompt templates (Vietnamese)
 │   ├── MANAGER.md                  # Manager prompt for judgement calls only (installed to .agents/MANAGER.md)
