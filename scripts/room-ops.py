@@ -278,7 +278,9 @@ def cleanup_after_ship(lines, keep):
         if n_status or n_prog:
             out.append(f"{n_status} status, {n_prog} progress")
         # 2. verification screenshots -> archive/<stamp>/, keep the last 3 batches
-        shots = screenshots()
+        # never move files git tracks: that would leave deleted tracked files and a dirty tree (hand-off needs a clean one)
+        tracked = set(git("ls-files", f"{AG}/screenshots")[1].splitlines())
+        shots = [f for f in screenshots() if f not in tracked]
         if shots:
             dest = f"{AG}/screenshots/archive/{datetime.now():%Y%m%d-%H%M}"
             for f in shots:
