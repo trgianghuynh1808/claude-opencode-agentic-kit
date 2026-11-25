@@ -479,7 +479,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
-| `/usage` | Tokens, turns and list-price cost of the Claude calls today, per role, plus the last 5 calls (from `.agents/logs/usage.log`) |
+| `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
 | `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button |
 
@@ -532,7 +532,7 @@ Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode
 - **The daemon waits for OpenCode**, not Claude: Tech Lead is called again only when OpenCode is `done` or `stuck`, with a fresh context.
 - **Model per role** in `.agents/room.env`: `MODEL_MANAGER`, `MODEL_TECHLEAD` (`haiku`, `sonnet`, `opus` or a full id; empty = the CLI default).
 - **Turn cap per call:** `MAX_TURNS_MANAGER` (20), `MAX_TURNS_TECHLEAD` (150); a call that hits it fails instead of running on.
-- **Measure:** every call is appended to `.agents/logs/usage.log` (JSON lines: role, label, model, turns, tokens, cost). `/usage` summarizes it. The dollar figure is the API list price, useful to compare steps, not your subscription quota.
+- **Measure:** every Claude call is appended to `.agents/logs/usage.log` (JSON lines: role, label, model, turns, tokens, cost). `/usage` summarizes it and adds OpenCode's numbers from `opencode stats` (per project and per model; it also counts runs you start by hand and cannot split them per task). Dollar figures are API list prices, useful to compare steps, not your subscription quota.
 - `CHAT_WITH_CLAUDE="true"` lets Claude answer plain text (costs quota); the default replies with a canned help text.
 
 ### Troubleshooting (multi-room)

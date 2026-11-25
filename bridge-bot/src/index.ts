@@ -307,7 +307,7 @@ if (!DISCOVERY) {
     { command: "auto", description: "Giao việc: /auto <checklist>, mỗi dòng một task" },
     { command: "status", description: "Xem board và tiến độ" },
     { command: "health", description: "Kiểm tra mọi agent có đang chạy không" },
-    { command: "usage", description: "Token và chi phí các lần gọi Claude" },
+    { command: "usage", description: "Token và chi phí Claude + OpenCode (/usage 7 = 7 ngày)" },
     { command: "stop", description: "Tắt AUTO_MODE, dừng nhận task mới" },
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
