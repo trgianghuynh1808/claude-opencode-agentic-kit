@@ -11,10 +11,12 @@ const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
 const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship"]);
 
-if (!BOT_TOKEN || !Number.isFinite(ADMIN_USER_ID) || !Number.isFinite(CHAT_ID)) {
-  console.error("Set BOT_TOKEN, ADMIN_USER_ID and TELEGRAM_CHAT_ID (see .env.example).");
+if (!BOT_TOKEN) {
+  console.error("Set BOT_TOKEN (see .env.example).");
   process.exit(1);
 }
+// Discovery mode: without ADMIN_USER_ID/TELEGRAM_CHAT_ID the bot only replies with the ids to copy into .env.
+const DISCOVERY = !Number.isFinite(ADMIN_USER_ID) || !Number.isFinite(CHAT_ID);
 
 interface Room { topicId: number; name: string; path: string }
 interface OutboxMessage { text?: string; images?: string[]; requires?: string }
@@ -62,8 +64,16 @@ function safeImage(room: Room, rel: string): string | null {
 // ---------- inbound: Telegram -> .agents/inbox ----------
 const bot = new Bot(BOT_TOKEN);
 
+if (DISCOVERY) {
+  bot.on("message", async (ctx) => {
+    const info = `ADMIN_USER_ID=${ctx.from?.id}\nTELEGRAM_CHAT_ID=${ctx.chat.id}\nTopic ID (message_thread_id)=${ctx.message.message_thread_id ?? "none (General)"}`;
+    console.log(info);
+    await ctx.reply(info, { message_thread_id: ctx.message.message_thread_id });
+  });
+}
+
 bot.on("message:text", async (ctx) => {
-  if (!isAdmin(ctx)) return;
+  if (DISCOVERY || !isAdmin(ctx)) return;
   const topicId = ctx.message.message_thread_id;
   if (topicId === undefined) {
     await ctx.reply("Hãy nhắn trong một Topic của project (General không có phòng).");
@@ -157,12 +167,12 @@ async function pollRoom(room: Room): Promise<void> {
 }
 
 let polling = false;
-setInterval(async () => {
+if (!DISCOVERY) setInterval(async () => {
   if (polling) return;
   polling = true;
   try { for (const room of await loadRooms()) await pollRoom(room); } finally { polling = false; }
 }, POLL_MS);
 
 bot.catch((err) => console.error("bot error:", err.message));
-console.log(`Bridge bot up. Rooms file: ${ROOMS_FILE}`);
+console.log(DISCOVERY ? "Discovery mode: send any message in the group/Topic to get the ids." : `Bridge bot up. Rooms file: ${ROOMS_FILE}`);
 void bot.start();
