@@ -16,7 +16,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog", "approve", "reject", "revise", "automode", "config"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog", "approve", "reject", "revise", "automode", "config", "task"]);
 // /newroom runs the `kit` CLI that lives two folders above dist/. API_ROOT / KIT_EXTRA_ARGS exist for the end-to-end test (fake Telegram, --no-start).
 const KIT_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "kit");
 const PROJECTS_DIR = path.resolve(process.env.KIT_PROJECTS_DIR ?? path.join(os.homedir(), "Documents", "projects"));
@@ -261,15 +261,15 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật hoặc tắt chế độ tự động\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/task <việc cần làm>` · giao việc, mỗi dòng một việc (`/auto` vẫn dùng được)\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật hoặc tắt chế độ tự động\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
     return;
   }
   if (command === "/plan" && !m?.[2]?.trim()) {
     await sendRich(bot.api, ctx.chat.id, "Bạn muốn hỏi gì về project nè? 🔍\nCách dùng: `/plan <câu hỏi>`. Mình và Tech Lead sẽ đọc code rồi tổng hợp gửi bạn, không sửa gì và không tạo task nào hết.", { message_thread_id: topicId });
     return;
   }
-  if (command === "/auto" && !m?.[2]?.trim()) {
-    await sendRich(bot.api, ctx.chat.id, "Bạn cho mình biết việc cần làm nhé 📝\nCách dùng: `/auto <việc cần làm>`, mỗi dòng một việc.", { message_thread_id: topicId });
+  if ((command === "/auto" || command === "/task") && !m?.[2]?.trim()) {
+    await sendRich(bot.api, ctx.chat.id, "Bạn cho mình biết việc cần làm nhé 📝\nCách dùng: `/task <việc cần làm>`, mỗi dòng một việc.", { message_thread_id: topicId });
     return;
   }
 
@@ -476,7 +476,7 @@ async function createRoom(p: PendingRoom): Promise<void> {
       `Phòng **${title}** đã sẵn sàng! 🚀`, "",
       "**Thông tin**", `- Thư mục: \`${p.dir}\``, `- Port dev server: \`${req.port}\``,
       ...(repoUrl ? [`- Repo GitHub: ${repoUrl}`] : []), "",
-      "**Bắt đầu thôi**", "- `/health` để kiểm tra các agent", "- `/auto <việc cần làm>` để giao việc, mỗi dòng một việc", "",
+      "**Bắt đầu thôi**", "- `/health` để kiểm tra các agent", "- `/task <việc cần làm>` để giao việc, mỗi dòng một việc", "",
       req.agents ? "Mình đã nhờ Claude soạn nháp `AGENTS.md`, bạn đọc lại trước khi giao task đầu tiên nhé 📖" : "Nhớ điền `AGENTS.md` để các agent biết cách chạy app và test nha 📖",
     ].join("\n"));
     await writeRoomOutbox(room, "techlead", "Chào bạn, mình là **Tech Lead** 🛠\nMình sẽ lên plan, verify và review cho project này nha.");
@@ -567,7 +567,8 @@ bot.catch((err) => console.error("bot error:", err.message));
 // Register the command menu shown when typing "/" (only the main bot receives commands).
 if (!DISCOVERY) {
   const menu = [
-    { command: "auto", description: "Giao việc: /auto <checklist>, mỗi dòng một task" },
+    { command: "task", description: "Giao việc: /task <checklist>, mỗi dòng một task" },
+    { command: "auto", description: "Giống /task (tên cũ)" },
     { command: "status", description: "Xem board và tiến độ" },
     { command: "health", description: "Kiểm tra mọi agent có đang chạy không" },
     { command: "usage", description: "Token và chi phí Claude + OpenCode (/usage 7 = 7 ngày)" },

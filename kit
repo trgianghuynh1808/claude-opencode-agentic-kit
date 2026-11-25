@@ -240,7 +240,7 @@ room_busy() {   # project → in lý do nếu bận
     [[ -f "$f" ]] || continue
     case "$(cut -d' ' -f1 "$f")" in queued|running) echo "OpenCode đang chạy $(basename "$f" .status)"; return 0 ;; esac
   done
-  if grep -qE '^- \[ \] `T[0-9]+` \[(planning|plan_ready|in_progress|awaiting_plan|revise)\]' "$p/.agents/board.md" 2>/dev/null; then echo "có task đang dở"; return 0; fi
+  if grep -qE '^- \[ \] `T[0-9]+` \[(planning|plan_ready|in_progress|awaiting_plan|revise|approved|needs_info)\]' "$p/.agents/board.md" 2>/dev/null; then echo "có task đang dở"; return 0; fi
   if [[ -f "$p/.agents/plan.pid" ]] && kill -0 "$(cat "$p/.agents/plan.pid" 2>/dev/null)" 2>/dev/null; then echo "đang trả lời một câu hỏi /plan"; return 0; fi
   return 1
 }

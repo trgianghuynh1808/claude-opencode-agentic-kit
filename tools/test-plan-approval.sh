@@ -16,6 +16,7 @@ P="$T/proj"; mkdir -p "$P"; git -C "$P" init -q -b main; git -C "$P" config user
 echo a > "$P/a"; git -C "$P" add -A; git -C "$P" commit -qm init
 "$KIT/install.sh" "$P" >/dev/null 2>&1; (cd "$P" && scripts/agent-room.sh init --topic 5 --port 4000 >/dev/null); git -C "$P" add -A; git -C "$P" commit -qm kit
 git -C "$P" branch staging; cd "$P"; git checkout -q staging
+sed -i.bak 's/^PLAN_APPROVAL=.*/PLAN_APPROVAL="ask"/' .agents/room.env; rm -f .agents/room.env.bak
 fail=0
 check() { if eval "$2"; then echo "  ✓ $1"; else echo "  ✗ $1"; fail=1; fi; }
 OPS() { python3 scripts/room-ops.py "$@"; }
@@ -53,7 +54,7 @@ Verify mode: light
 PLAN
 }
 
-echo "the card (PLAN_APPROVAL=ask, the default):"
+echo "the card (PLAN_APPROVAL=ask):"
 board T01 plan_ready task-01-up
 git checkout -q -b task/task-01-up; mkplan task-01-up ""; git add -A; git commit -qm "plan: task-01-up"
 OPS progress task-01-up >/dev/null
@@ -99,6 +100,39 @@ clearbox; sed -i.bak 's/^PLAN_APPROVAL=.*/PLAN_APPROVAL="ask"/' .agents/room.env
 board T04 plan_ready task-04-env; git checkout -q -b task/task-04-env; mkplan task-04-env ""; sed -i.bak 's#`README.md` → mô tả#`.env` → đổi key#' .agents/tasks/*task-04-env.md; rm -f .agents/tasks/*.bak; git add -A; git commit -qm "plan: task-04-env"
 OPS progress task-04-env >/dev/null
 check "a blocked plan gets no buttons and is left to the daemon to block" 'grep -q "^\[techlead||\]" <<<"$(alltext)" && grep -q "chặn plan này" <<<"$(alltext)" && [[ "$(state T04)" == plan_ready ]]'
+
+
+echo "auto mode (default): critical plans are held, soft doubts are not:"
+git checkout -q staging; python3 - <<'PY'
+import re
+p='.agents/board.md'; s=open(p).read()
+s=re.sub(r"^- \[ \] `T0[1-9]`.*\n","",s,flags=re.M); open(p,'w').write(s)
+PY
+clearbox; sed -i.bak 's/^PLAN_APPROVAL=.*/PLAN_APPROVAL="auto"/' .agents/room.env; rm -f .agents/room.env.bak
+board T06 plan_ready task-06-mig; git checkout -q -b task/task-06-mig; mkplan task-06-mig ""; sed -i.bak 's#`README.md` → mô tả#`db/001.sql` → migration mới#' .agents/tasks/*task-06-mig.md; rm -f .agents/tasks/*.bak; git add -A; git commit -qm "plan: task-06-mig"
+[[ "$(OPS check-plan task-06-mig)" == CRITICAL:* ]] && echo "  ✓ check-plan: a migration is CRITICAL" || { echo "  ✗ check-plan: migration should be CRITICAL"; fail=1; }
+OPS progress task-06-mig >/dev/null
+check "a critical plan is held with the buttons and says why"   '[[ "$(state T06)" == awaiting_plan ]] && grep -q "^\[manager|APPROVE_PLAN|T06\]" <<<"$(alltext)" && grep -q "giữ lại chờ bạn duyệt" <<<"$(alltext)" && grep -q "rủi ro nghiêm trọng" <<<"$(alltext)"'
+git checkout -q staging; board T07 pending task-07-next
+check "the queue is not stuck: the next task is picked (held one skipped)" '[[ "$(bash -c "BOARD=.agents/board.md PLAN_APPROVAL=auto; $(sed -n "/^board_line() {/,/^state_of()/p" scripts/manager-loop.sh | sed "\$d"); board_line")" == *T07* ]]'
+check "in ask mode the same board waits on the held task"       '[[ "$(bash -c "BOARD=.agents/board.md PLAN_APPROVAL=ask; $(sed -n "/^board_line() {/,/^state_of()/p" scripts/manager-loop.sh | sed "\$d"); board_line")" == *T06* ]]'
+sed -i.bak 's/`T07` \[pending\]/`T07` [in_progress]/' .agents/board.md; rm -f .agents/board.md.bak
+clearbox; cmd /approve T06
+check "approving a held plan while another task runs queues it (no hand-off yet)" '[[ "$(state T06)" == approved ]] && grep -q "xong sẽ làm tới" <<<"$(alltext)" && ! ls .agents/queue/*task-06* >/dev/null 2>&1'
+check "a running task is picked before an approved one"         '[[ "$(bash -c "BOARD=.agents/board.md PLAN_APPROVAL=auto; $(sed -n "/^board_line() {/,/^state_of()/p" scripts/manager-loop.sh | sed "\$d"); board_line")" == *T07* ]]'
+sed -i.bak 's/`T07` \[in_progress\]/`T07` [done]/; s/^- \[ \] `T07`/- [x] `T07`/' .agents/board.md; rm -f .agents/board.md.bak
+check "...and once it is finished the approved one is next"     '[[ "$(bash -c "BOARD=.agents/board.md PLAN_APPROVAL=auto; $(sed -n "/^board_line() {/,/^state_of()/p" scripts/manager-loop.sh | sed "\$d"); board_line")" == *T06* ]]'
+
+echo "missing context and blocked tasks:"
+clearbox; board T08 needs_info task-08-q; board T09 BLOCKED task-09-b
+mkdir -p .agents/plan-feedback; printf -- '- Ảnh nào là ảnh gốc?\n' > .agents/plan-feedback/task-08-q.question.md
+OPS skipped-notice; OPS skipped-notice
+A="$(alltext)"
+check "each skipped task is announced once, with the question"  '[[ "$(grep -c "thiếu ngữ cảnh" <<<"$A")" == 1 && "$(grep -c "đang bị chặn" <<<"$A")" == 1 ]] && grep -q "Ảnh nào là ảnh gốc" <<<"$A" && grep -q "/revise T08" <<<"$A"'
+clearbox; cmd /revise "T08 ảnh gốc là file raw.png"
+check "answering turns needs_info back into pending, feedback kept" '[[ "$(state T08)" == pending ]] && grep -q "raw.png" .agents/plan-feedback/task-08-q.md'
+check "/task is an alias of /auto"                              'cmd /task "Việc từ lệnh task" ; grep -q "Việc từ lệnh task" .agents/board.md'
+check "a blocked plan in auto mode lets the queue go on"        'OPS block T09 "thử nghiệm" >/dev/null; grep -q "chuyển sang" <<<"$(alltext)" && grep -q "AUTO_MODE=\"true\"" .agents/room.env'
 
 echo "the daemon:"
 git checkout -q staging; python3 - <<'PY'

@@ -69,8 +69,8 @@ MODEL_TECHLEAD=""
 # Giới hạn số lượt mỗi lần gọi (chặn một lần chạy lạc đốt quota)
 MAX_TURNS_MANAGER="20"
 MAX_TURNS_TECHLEAD="150"
-# Duyệt plan: "ask" = Tech Lead lên plan xong thì gửi THẺ đầy đủ kèm nút Duyệt / Sửa plan / Hủy và chờ bạn; "auto" = hệ thống tự kiểm tra và duyệt
-PLAN_APPROVAL="ask"
+# Duyệt plan: "auto" = tự duyệt, chỉ giữ lại khi plan rủi ro nghiêm trọng / thiếu ngữ cảnh / bị chặn (rồi làm task kế tiếp); "ask" = luôn gửi THẺ có nút Duyệt / Sửa plan / Hủy và chờ bạn
+PLAN_APPROVAL="auto"
 # Tin báo bước của Dev kèm link commit trên GitHub: daemon sẽ git push nhánh task lên origin (xóa sau /ship). "false" = không push, không link
 COMMIT_LINKS="true"
 # Chế độ /plan (Tech Lead đọc repo để trả lời câu hỏi): giới hạn số lượt

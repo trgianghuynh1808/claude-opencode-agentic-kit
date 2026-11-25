@@ -24,7 +24,7 @@ ENV_DEFAULTS = [
     ("MODEL_TECHLEAD", "", None),
     ("MAX_TURNS_MANAGER", "20", "# Giới hạn số lượt mỗi lần gọi (chặn một lần chạy lạc đốt quota)"),
     ("MAX_TURNS_TECHLEAD", "150", None),
-    ("PLAN_APPROVAL", "ask", '# Duyệt plan: "ask" = thẻ đầy đủ kèm nút Duyệt / Sửa plan / Hủy và chờ bạn; "auto" = hệ thống tự kiểm tra và duyệt'),
+    ("PLAN_APPROVAL", "auto", '# Duyệt plan: "auto" = tự duyệt, chỉ giữ lại khi rủi ro nghiêm trọng / thiếu ngữ cảnh / bị chặn (rồi làm task kế tiếp); "ask" = luôn chờ bạn duyệt bằng thẻ'),
     ("COMMIT_LINKS", "true", '# Tin báo bước của Dev kèm link commit trên GitHub: daemon git push nhánh task lên origin (xóa sau /ship). "false" = không push, không link'),
     ("MAX_TURNS_PLAN", "40", "# Chế độ /plan (Tech Lead đọc repo để trả lời câu hỏi): giới hạn số lượt"),
     ("AUTO_SPLIT", "lines", '# /auto tách task: "lines" (mỗi dòng một task, không tốn Claude) hoặc "claude" (Manager tách)'),

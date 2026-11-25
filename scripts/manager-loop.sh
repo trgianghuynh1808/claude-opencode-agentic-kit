@@ -65,7 +65,7 @@ room_env() {   # nạp lại mỗi vòng để thấy thay đổi mới
   # shellcheck source=/dev/null
   source "$AG/room.env"
   AUTO_MODE="${AUTO_MODE:-false}"; STAGING_BRANCH="${STAGING_BRANCH:-staging}"; MAIN_BRANCH="${MAIN_BRANCH:-main}"
-  MAX_FIX_CYCLES="${MAX_FIX_CYCLES:-2}"
+  MAX_FIX_CYCLES="${MAX_FIX_CYCLES:-2}"; PLAN_APPROVAL="${PLAN_APPROVAL:-auto}"
   MODEL_MANAGER="${MODEL_MANAGER:-}"; MODEL_TECHLEAD="${MODEL_TECHLEAD:-}"
   MAX_TURNS_MANAGER="${MAX_TURNS_MANAGER:-20}"; MAX_TURNS_TECHLEAD="${MAX_TURNS_TECHLEAD:-150}"; MAX_TURNS_PLAN="${MAX_TURNS_PLAN:-40}"
 }
@@ -78,7 +78,17 @@ set_env_key() { # key value
   fi
 }
 
-board_line() { grep -m1 -E '^- \[ \] `T[0-9]+` \[[A-Za-z_]+\]' "$BOARD" 2>/dev/null || true; }
+board_line() {
+  # Thứ tự: việc đang chạy dở → plan bạn đã duyệt → việc mới. PLAN_APPROVAL=auto bỏ qua task đang chờ bạn (giữ plan, thiếu ngữ cảnh, bị chặn) để làm task kế tiếp.
+  local act='planning|plan_ready|in_progress|revise' l=""
+  [[ "${PLAN_APPROVAL:-auto}" == ask ]] && act="$act|awaiting_plan|needs_info|BLOCKED"
+  for st in "$act" approved pending; do
+    l="$(grep -m1 -E "^- \[ \] \`T[0-9]+\` \[($st)\]" "$BOARD" 2>/dev/null || true)"
+    [[ -n "$l" ]] && break
+  done
+  printf '%s' "$l"
+}
+state_of() { sed -nE "s/^- \[ \] \`$1\` \[([A-Za-z_]+)\].*/\1/p" "$BOARD" 2>/dev/null | head -1; }
 line_id()    { sed -nE 's/^- \[ \] `(T[0-9]+)`.*/\1/p' <<<"$1"; }
 line_state() { sed -nE 's/^- \[ \] `T[0-9]+` \[([A-Za-z_]+)\].*/\1/p' <<<"$1"; }
 line_slug()  { sed -nE 's/.*\(slug: `([^`]+)`\).*/\1/p' <<<"$1"; }
@@ -158,7 +168,7 @@ KHÔNG kill hay dừng tiến trình bạn không tự khởi động (kể cả
 Daemon tự báo tiến độ cho user từ file task và git (plan, bước xong, test, Verify, vòng sửa, merge), nên bạn KHÔNG cần viết tin: chỉ cần giữ file task đúng mẫu (tick checkbox từng bước ngay khi xong, cập nhật mục Test status dạng T1: PASS|FAIL, viết mục ## Verify và dòng cuối VERIFY: PASS|FAIL) và lưu ảnh vào .agents/screenshots/. Chỉ ghi file JSON vào .agents/outbox/ (ghi ra .tmp rồi đổi tên thành <unix-ts>-techlead-<n>.json) khi cần user quyết định điều gì: {\"from\": \"techlead\", \"text\": \"...\"}. Giọng văn: tiếng Việt thân thiện, thoải mái, xưng mình và gọi bạn, có thể dùng emoji vừa phải. Trình bày dễ đọc: tách mục bằng dòng trống, dùng **chữ đậm** cho tiêu đề, gạch đầu dòng - cho danh sách, dấu ngược cho tên file hoặc lệnh. Ngắn gọn, tối đa khoảng 8 dòng. Không đưa secret vào tin.
 LƯU Ý CHO NGƯỜI DUYỆT: khi có điều người duyệt cần biết thì ghi một dòng bắt đầu bằng 'Lưu ý:' vào 'Trạng thái hiện tại' (hoặc vào mục '## Lưu ý' nếu file task có). Ví dụ: chỗ làm lệch plan, phần chưa được kiểm tra hoặc kiểm tra ít hơn mục tiêu, bug đã biết (kể cả test đánh dấu test.fail), việc nên làm tiếp, phát hiện không chặn khi review. Hệ thống chuyển những dòng này lên Telegram; chỉ dòng có tiền tố 'Lưu ý:' hoặc 'Cảnh báo:' mới được chuyển."
   case "$1" in
-    plan) printf '%s\n\nVIỆC CỦA BẠN: chỉ LÊN PLAN. Checkout %s, tạo nhánh task/%s, viết plan vào .agents/tasks/<ngày>-%s.md theo CLAUDE.md, commit file plan. KHÔNG chạy scripts/handoff.sh (daemon kiểm tra plan rồi mới giao). Cuối cùng đổi task %s trên board.md từ [pending] sang [plan_ready].\nKhi lập plan: nếu một bước test phụ thuộc giao diện do bước trước trong plan tạo ra thì selector chưa tồn tại, đừng bịa. Ghi selector là ví dụ và yêu cầu bước test ĐỌC dòng Selectors trong Trạng thái hiện tại (bước giao diện sẽ ghi lại dòng này khi làm xong).\n' "$common" "$STAGING_BRANCH" "$3" "$3" "$2" ;;
+    plan) printf '%s\n\nVIỆC CỦA BẠN: chỉ LÊN PLAN. Checkout %s, tạo nhánh task/%s, viết plan vào .agents/tasks/<ngày>-%s.md theo CLAUDE.md, commit file plan. KHÔNG chạy scripts/handoff.sh (daemon kiểm tra plan rồi mới giao). Nếu có file .agents/plan-feedback/%s.md thì đó là thông tin người dùng vừa bổ sung cho task này: đọc trước khi lên plan.\nNếu THIẾU NGỮ CẢNH để lên plan đáng tin cậy (yêu cầu mơ hồ, thiếu quyết định mà chỉ người dùng chốt được, không tìm thấy phần code liên quan), ĐỪNG đoán: ghi câu hỏi cụ thể (ngắn, tối đa 5 gạch đầu dòng, tiếng Việt) vào .agents/plan-feedback/%s.question.md, đổi task %s trên board.md từ [pending] sang [needs_info] rồi dừng, không tạo nhánh hay plan.\nCuối cùng đổi task %s trên board.md từ [pending] sang [plan_ready].\nKhi lập plan: nếu một bước test phụ thuộc giao diện do bước trước trong plan tạo ra thì selector chưa tồn tại, đừng bịa. Ghi selector là ví dụ và yêu cầu bước test ĐỌC dòng Selectors trong Trạng thái hiện tại (bước giao diện sẽ ghi lại dòng này khi làm xong).\n' "$common" "$STAGING_BRANCH" "$3" "$3" "$3" "$3" "$2" "$2" ;;
     revise) printf '%s\n\nVIỆC CỦA BẠN: người dùng đã xem plan và YÊU CẦU SỬA. Góp ý của họ nằm trong file .agents/plan-feedback/%s.md (đọc kỹ, góp ý mới nhất ở cuối). Checkout nhánh task/%s, mở plan .agents/tasks/*%s*.md và sửa cho đúng góp ý: giữ nguyên định dạng, nhãn mức [dễ|vừa|khó] và mục Test cases, cập nhật Ngữ cảnh nếu cần. Commit với message "plan(rev-N): %s" (N là số lần sửa). KHÔNG chạy scripts/handoff.sh. Cuối cùng đổi task %s trên board.md từ [revise] sang [plan_ready].\n' "$common" "$3" "$3" "$3" "$3" "$2" ;;
     finish) printf '%s\n\nVIỆC CỦA BẠN: plan đã được duyệt và đã giao cho OpenCode. Daemon đã chờ giúp bạn: OpenCode báo trạng thái "%s" cho file plan %s. TUYỆT ĐỐI không chạy scripts/wait-task.sh. Làm tiếp từ bước Verify của Autopilot (nếu trạng thái done) hoặc Fix cycle (nếu stuck), tối đa %s vòng sửa.\nNếu cần Fix cycle: ghi bước Fix vào file plan, commit plan(fix-n), chạy scripts/handoff.sh <file plan> rồi KẾT THÚC phiên ngay: daemon sẽ chờ OpenCode và gọi lại bạn với ngữ cảnh mới (mọi thông tin phải nằm trong file plan).\nLưu ảnh verify vào .agents/screenshots/ với tên bắt đầu bằng task-NN- (NN là số của task, ví dụ task-05-portal-upload.png) và chỉ chụp ảnh của kịch bản vừa verify, vì báo cáo duyệt ship chỉ gửi ảnh gắn với từng task. Task không cần ảnh (Verify none) thì không chụp. Khi PASS: merge --squash nhánh task/%s vào %s (KHÔNG push, KHÔNG merge vào %s), xóa nhánh task, đổi task %s thành [done] và [x] trên board.md, ghi Activity Log. Nếu hết vòng sửa mà chưa đạt: [BLOCKED] + lý do.\n' "$common" "${4:-done}" "${5:-?}" "${MAX_FIX_CYCLES:-2}" "$3" "$STAGING_BRANCH" "$MAIN_BRANCH" "$2" ;;
   esac
@@ -302,6 +312,10 @@ tick_auto() {
   room_env
   [[ "$AUTO_MODE" == "true" ]] || return 1
   local line id state slug plan st st_state st_ts fixes verdict
+  if [[ "$PLAN_APPROVAL" == auto ]] && (( SECONDS - ${LAST_SKIP_CHECK:-0} >= 10 )); then
+    LAST_SKIP_CHECK=$SECONDS
+    python3 "$OPS" skipped-notice >/dev/null 2>>"$LOGDIR/ops.log" || true   # báo task bị bỏ qua (bị chặn, thiếu ngữ cảnh)
+  fi
   line="$(board_line)"
   if [[ -z "$line" ]]; then
     # Không còn task chưa xong: có task done → chốt batch (bằng code, không gọi Claude)
@@ -327,17 +341,22 @@ tick_auto() {
     plan_ready)
       guard "$id:$state" || return 0
       report_progress "$slug"   # gửi thẻ plan; PLAN_APPROVAL=ask thì task chuyển sang awaiting_plan và chờ bạn bấm nút
-      [[ "$(line_state "$(board_line)")" == plan_ready ]] || return 0
+      [[ "$(state_of "$id")" == plan_ready ]] || return 0   # đã chuyển sang chờ bạn duyệt (hoặc bị giữ lại vì rủi ro)
       verdict="$(python3 "$OPS" check-plan "$slug" 2>>"$LOGDIR/ops.log")"
       log "⚙ $id kiểm tra plan: $verdict"
       case "$verdict" in
         OK) python3 "$OPS" approve "$slug" >>"$LOGDIR/ops.log" 2>&1 \
               || log "⚠ $id: duyệt/hand-off lỗi (task đã được đánh dấu BLOCKED, xem ops.log)" ;;
         BLOCK*) python3 "$OPS" block "$id" "${verdict#BLOCK: }" >/dev/null 2>>"$LOGDIR/ops.log" ;;
-        *) run_claude manager "$(manager_prompt APPROVE_PLAN "Task: $id (slug: $slug)"$'\n'"Kiểm tra tự động nghi ngờ: ${verdict#REVIEW: }")" "$id duyệt plan"
-           # nếu Manager đã duyệt, nói cho bạn biết plan này từng bị nghi ngờ vì sao
-           python3 "$OPS" review-note "$id" "${verdict#REVIEW: }" >/dev/null 2>>"$LOGDIR/ops.log" || true ;;
+        REVIEW*|CRITICAL*)   # nghi ngờ nhẹ: vẫn duyệt (không tốn lượt Claude), nói cho bạn biết lý do. Nghiêm trọng đã được giữ lại ở thẻ plan.
+           python3 "$OPS" approve "$slug" >>"$LOGDIR/ops.log" 2>&1 \
+             && { python3 "$OPS" review-note "$id" "${verdict#*: }" >/dev/null 2>>"$LOGDIR/ops.log" || true; } \
+             || log "⚠ $id: duyệt/hand-off lỗi (xem ops.log)" ;;
+        *) log "⚠ $id: kết quả kiểm tra plan lạ: $verdict" ;;
       esac ;;
+    approved)
+      python3 "$OPS" approve "$slug" user >>"$LOGDIR/ops.log" 2>&1 || log "⚠ $id: giao plan đã duyệt cho OpenCode bị lỗi (xem ops.log)" ;;
+    needs_info) return 1 ;;   # chờ bạn bổ sung thông tin (/revise Tn <thông tin>)
     awaiting_plan) return 1 ;;   # đang chờ bạn duyệt plan trên Telegram (nút Duyệt / Sửa plan / Hủy): không gọi Claude, không tốn gì
     revise)
       guard "$id:$state" && CUR_SLUG="$slug" run_claude techlead "$(techlead_prompt revise "$id" "$slug")" "$id sửa plan theo góp ý" ;;

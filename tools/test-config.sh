@@ -7,7 +7,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export AGENT_ROOMS_FILE="$T/rooms.json"
 P="$T/proj"; mkdir -p "$P"; git -C "$P" init -q -b main; git -C "$P" config user.email t@t; git -C "$P" config user.name t
 echo a > "$P/a"; git -C "$P" add -A; git -C "$P" commit -qm init
-"$KIT/install.sh" "$P" >/dev/null 2>&1; (cd "$P" && scripts/agent-room.sh init --topic 5 --port 4321 >/dev/null); git -C "$P" add -A; git -C "$P" commit -qm kit
+"$KIT/install.sh" "$P" >/dev/null 2>&1; (cd "$P" && scripts/agent-room.sh init --topic 5 --port 4321 >/dev/null); sed -i.bak 's/^PLAN_APPROVAL=.*/PLAN_APPROVAL="ask"/' "$P/.agents/room.env"; rm -f "$P/.agents/room.env.bak"; git -C "$P" add -A; git -C "$P" commit -qm kit
 git -C "$P" branch staging; cd "$P"; git checkout -q staging
 fail=0
 check() { if eval "$2"; then echo "  ✓ $1"; else echo "  ✗ $1"; fail=1; fi; }
@@ -48,7 +48,7 @@ cmd /automode off >/dev/null
 
 echo "/config:"
 R="$(cmd /config)"
-check "listing shows every setting with its meaning"            'grep -q "approval" <<<"$R" && grep -q "links" <<<"$R" && grep -q "model_techlead" <<<"$R" && grep -q "ask = bạn duyệt" <<<"$R"'
+check "listing shows every setting with its meaning"            'grep -q "approval" <<<"$R" && grep -q "links" <<<"$R" && grep -q "model_techlead" <<<"$R" && grep -q "ask = luôn chờ" <<<"$R"'
 R="$(cmd /config approval auto)"
 check "changing approval updates room.env, the board and the log" '[[ "$(envval PLAN_APPROVAL)" == auto ]] && grep -q "Plan Approval:\*\* auto" .agents/board.md && grep -q "/config approval" .agents/board.md && grep -q "ask → \*\*auto\*\*" <<<"$R"'
 S="$(cmd /status)"

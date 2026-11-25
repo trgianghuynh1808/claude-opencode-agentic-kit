@@ -543,7 +543,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 | Command | Effect |
 |---|---|
-| `/auto <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command gets a canned reply (no Claude call) |
+| `/task <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command gets a canned reply (no Claude call) |
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
@@ -568,6 +568,14 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 - Task plan files in `.agents/tasks/` are kept: they are part of the repository history.
 
 Fresh context is automatic: every Tech Lead call is a new `claude -p` process (no `/clear` needed), and OpenCode only continues a session between step groups of the same task.
+
+**Auto approval (default, `PLAN_APPROVAL="auto"`).** A plan that passes the automatic check goes straight to OpenCode, with no question asked. The queue **never stops for one task**: three situations pass that task over, tell you once, and carry on with the next one in the list:
+- **Serious risk** (secrets or keys, migrations, CI/deploy files, `rm -rf`): the plan is **held** and you get the plan card with the buttons. Approve it any time; if another task is running it is queued as `approved` and starts right after.
+- **Missing context**: the Tech Lead sets the task to `needs_info` and asks its question (in chat). Answer with `/revise Tn <information>` and the plan is made again, or `/reject Tn`.
+- **Blocked** (touches `.env`, deletes data, stuck after the fix cycles): the task is `BLOCKED`, the room stays on; `/resume` tries it again.
+Softer doubts (more than 8 steps, a lockfile, no test command) are approved with a note for you. With `PLAN_APPROVAL="ask"` every plan waits for you (card below) and the queue waits too. The daemon always finishes the running task first, then approved plans, then new tasks.
+
+**`/task`** (formerly `/auto`; the old name still works) adds tasks, one per line. It is no longer "auto": whether plans need your approval depends on `PLAN_APPROVAL`, and the autopilot itself is `/automode on|off`.
 
 **Plan approval card.** When the Tech Lead has written a plan, you get **one card with the whole plan**: goals and decisions made, every step with its difficulty (and how many of each), the test cases (names only), the files it will touch, the Verify mode and what the automatic check found. Three buttons: **✅ Duyệt** (the plan is committed as `APPROVED_BY_USER` and handed to OpenCode), **✏️ Sửa plan** (type `/revise <góp ý>`: the Tech Lead edits the plan on its branch according to your feedback, committed as `plan(rev-N)`, and you get a new card) and **❌ Hủy** (the task is cancelled; its branch is kept). While it waits, the task is in state `awaiting_plan` and **nothing costs anything** (no Claude call, no OpenCode). A plan the automatic check **blocks** (for example it touches `.env`) gets the same card without buttons and is blocked as before. Set `PLAN_APPROVAL="auto"` in `.agents/room.env` for the previous hands-off behaviour (same card, no buttons, the daemon checks and approves by itself). `tools/test-plan-approval.sh` covers it.
 
@@ -622,7 +630,7 @@ Logs in `.agents/logs/` (progress messages are not logged, they go straight to T
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
-`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `PLAN_APPROVAL` (`ask`|`auto`), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `PLAN_APPROVAL` (`auto`|`ask`), `COMMIT_LINKS` (`true`), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
 Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
