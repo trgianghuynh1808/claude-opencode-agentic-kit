@@ -401,16 +401,16 @@ The daemon calls `claude -p ... --dangerously-skip-permissions` (override with `
 #    create one Topic per project. Get ADMIN_USER_ID (your user id), TELEGRAM_CHAT_ID (group id, -100...),
 #    and each Topic id (message_thread_id).
 
-# 2. Bridge bot (once, on the machine that hosts the rooms)
-cd bridge-bot && npm install && npm run build
-cp .env.example .env     # fill BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID
-node --env-file=.env dist/index.js          # or: pm2 start dist/index.js --name bridge --node-args="--env-file=.env"
+# 2. Bridge bot (once): fill bridge-bot/.env (BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID).
+#    Leave the two ids empty first: the bot starts in discovery mode and replies with your ids.
+cp bridge-bot/.env.example bridge-bot/.env
+bridge-bot/bridge.sh start | stop | status | logs     # background (pm2 or tmux), builds on first run
 
 # 3. Each project (after ./install.sh <project>)
 cd /path/to/project
 scripts/agent-room.sh init --topic 12 --port 3001   # creates .agents/room.env + board.md, registers in bridge-bot/rooms.json
 git add -A && git commit -m "chore: add agent room"
-scripts/agent-room.sh start                         # manager-loop + watch-tasks via pm2 (or tmux)
+scripts/agent-room.sh start                         # starts the bridge if needed, then manager-loop + watch-tasks (pm2 or tmux)
 scripts/agent-room.sh status | stop
 ```
 
