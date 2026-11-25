@@ -432,7 +432,10 @@ scripts/agent-room.sh status | stop
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`.
 `run-task.sh` reads it (via `scripts/room-env.sh`): Verify uses `PLAYWRIGHT_BASE_URL` instead of `DEFAULT_VERIFY_URL`, and task branches
 are cut from the staging branch. Without a `room.env` everything behaves as in the single-project mode above.
-Logs: `.agents/logs/manager.log` (daemon), `manager` and `techlead` logs per Claude call.
+Logs: `.agents/logs/activity.log` (merged, timestamped, coloured by role), plus `manager.log` and `techlead.log` with the full output of each Claude call.
+
+With tmux, `agent-room.sh start` opens session `room-<name>`: window `dashboard` (board top-left, activity log bottom-left, OpenCode watcher on the right; mouse on)
+and window `manager` (the daemon). `Ctrl+B` then `0`/`1` switches window, `Ctrl+B` then `D` detaches without stopping anything.
 
 ## Repository layout
 
