@@ -1,5 +1,8 @@
 # 🚀 UPGRADE PLAN: Multi-Room Agentic Agency (Manager + Tech Lead + Senior Dev via Telegram)
 
+> **Ghi chú đọc (cập nhật mới nhất):** lệnh `/auto` trong các mục bên dưới nay tên là **`/task`** (tên cũ vẫn dùng được) và nó **chỉ thêm việc**, không còn tự bật chế độ tự động: bật bằng `/automode on`. Duyệt plan mặc định là `PLAN_APPROVAL=auto` (xem mục "Duyệt plan tự động" ở cuối). Các mô tả cũ bên dưới giữ nguyên như lịch sử.
+
+
 Tài liệu này định nghĩa chi tiết kế hoạch nâng cấp kit `claude-opencode-agentic-kit` từ mô hình 2-agent thủ công sang mô hình **Multi-Room Agentic Agency** chạy tự động toàn trình (Autopilot) cho nhiều dự án song song, điều khiển từ xa qua Telegram Topics.
 
 ---

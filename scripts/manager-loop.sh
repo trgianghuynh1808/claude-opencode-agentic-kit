@@ -2,8 +2,8 @@
 # Daemon của một phòng: chạy ở thư mục gốc project (agent-room start gọi script này).
 # Mỗi vòng quyết định MỘT việc rồi làm; việc cứng chạy bằng code (scripts/room-ops.py), Claude chỉ được gọi khi cần phán đoán.
 #
-#   inbox có tin            → room-ops.py xử lý (/status /stop /resume /ship /usage /auto, tin thường)
-#                             Claude Manager chỉ khi: AUTO_SPLIT="claude" (/auto) hoặc CHAT_WITH_CLAUDE="true" (tin thường)
+#   inbox có tin            → room-ops.py xử lý (/status /stop /resume /ship /usage /task, tin thường)
+#                             Claude Manager chỉ khi: AUTO_SPLIT="claude" (/task) hoặc CHAT_WITH_CLAUDE="true" (tin thường)
 #   AUTO_MODE=true, task đầu tiên chưa xong:
 #     [pending]             → Tech Lead (Claude) lên plan, không handoff
 #     [plan_ready]          → room-ops.py check-plan: OK → tự duyệt + handoff · BLOCK → chặn · REVIEW → Claude Manager xem

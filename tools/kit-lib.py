@@ -27,7 +27,7 @@ ENV_DEFAULTS = [
     ("PLAN_APPROVAL", "auto", '# Duyệt plan: "auto" = tự duyệt, chỉ giữ lại khi rủi ro nghiêm trọng / thiếu ngữ cảnh / bị chặn (rồi làm task kế tiếp); "ask" = luôn chờ bạn duyệt bằng thẻ'),
     ("COMMIT_LINKS", "true", '# Tin báo bước của Dev kèm link commit trên GitHub: daemon git push nhánh task lên origin (xóa sau /ship). "false" = không push, không link'),
     ("MAX_TURNS_PLAN", "40", "# Chế độ /plan (Tech Lead đọc repo để trả lời câu hỏi): giới hạn số lượt"),
-    ("AUTO_SPLIT", "lines", '# /auto tách task: "lines" (mỗi dòng một task, không tốn Claude) hoặc "claude" (Manager tách)'),
+    ("AUTO_SPLIT", "lines", '# /task tách task: "lines" (mỗi dòng một task, không tốn Claude) hoặc "claude" (Manager tách)'),
     ("KEEP_SHIPPED", "5", "# Sau /ship, giữ lại bao nhiêu task đã ship gần nhất trên board"),
     ("CHAT_WITH_CLAUDE", "false", '# Tin thường (không có lệnh): "false" = trả lời mẫu, "true" = để Claude Manager trả lời (tốn quota)'),
 ]

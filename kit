@@ -173,7 +173,7 @@ add_flow() {   # project (đã qua preflight)
   if (( START )); then start_room "$p"; else warn "Bỏ qua bật phòng (--no-start). Khi sẵn sàng: cd $p && scripts/agent-room.sh start"; fi
   echo ""
   echo "${B}${G}Xong!${X} Phòng '${NAME}' đã gắn với Topic ${TOPIC}."
-  echo "  Việc tiếp theo trong Telegram (Topic ${TOPIC}): ${B}/health${X} để kiểm tra, rồi ${B}/auto <việc cần làm>${X}."
+  echo "  Việc tiếp theo trong Telegram (Topic ${TOPIC}): ${B}/health${X} để kiểm tra, rồi ${B}/task <việc cần làm>${X}."
 }
 
 # ---------- kit add ----------
