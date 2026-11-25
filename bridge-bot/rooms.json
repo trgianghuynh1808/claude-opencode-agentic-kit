@@ -1,1 +1,9 @@
-{ "rooms": [] }
+{
+  "rooms": [
+    {
+      "topicId": 6,
+      "name": "tea-party-two-players",
+      "path": "/Users/erihuynh/Documents/projects/tea-party-two-players"
+    }
+  ]
+}
