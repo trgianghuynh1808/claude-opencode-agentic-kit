@@ -11,7 +11,7 @@ check() { # tên điều-kiện
 }
 
 # Nạp đúng các hàm tạo prompt (bash 3.2 trên macOS không hỗ trợ source <(...), dùng eval)
-for fn in techlead_prompt manager_prompt; do eval "$(sed -n "/^$fn()/,/^}/p" "$SRC")"; done
+for fn in techlead_prompt manager_prompt plan_tech_prompt plan_mgr_prompt; do eval "$(sed -n "/^$fn()/,/^}/p" "$SRC")"; done
 STAGING_BRANCH=staging; MAIN_BRANCH=main; MAX_FIX_CYCLES=2
 MANAGER_PROMPT="$KIT/prompts/MANAGER.md"; ROOM_DIR=/tmp/x
 
@@ -33,5 +33,17 @@ echo "manager_prompt:"
 p="$(manager_prompt APPROVE_PLAN "Task: T01")"
 check "không rỗng"                    '[[ -n "$p" ]]'
 check "có MODE"                       '[[ "$p" == *"MODE: APPROVE_PLAN"* ]]'
+
+echo "plan_tech_prompt:"
+p="$(plan_tech_prompt "Project có mấy màn hình?")"
+check "không rỗng"                    '[[ -n "$p" ]]'
+check "chứa câu hỏi"                  '[[ "$p" == *"Project có mấy màn hình?"* ]]'
+check "nói rõ chỉ đọc"                '[[ "$p" == *"KHÔNG sửa gì"* && "$p" == *"Read, Grep, Glob"* ]]'
+
+echo "plan_mgr_prompt:"
+p="$(plan_mgr_prompt "CAU_HOI_X" "BOARD_Y" "PHAN_TICH_Z")"
+check "không rỗng"                    '[[ -n "$p" ]]'
+check "chứa cả ba đầu vào"            '[[ "$p" == *CAU_HOI_X* && "$p" == *BOARD_Y* && "$p" == *PHAN_TICH_Z* ]]'
+check "yêu cầu mục /auto gợi ý"       '[[ "$p" == *"/auto"* ]]'
 
 [[ $fail == 0 ]] && echo "OK" || { echo "FAILED"; exit 1; }

@@ -24,6 +24,7 @@ ENV_DEFAULTS = [
     ("MODEL_TECHLEAD", "", None),
     ("MAX_TURNS_MANAGER", "20", "# Giới hạn số lượt mỗi lần gọi (chặn một lần chạy lạc đốt quota)"),
     ("MAX_TURNS_TECHLEAD", "150", None),
+    ("MAX_TURNS_PLAN", "40", "# Chế độ /plan (Tech Lead đọc repo để trả lời câu hỏi): giới hạn số lượt"),
     ("AUTO_SPLIT", "lines", '# /auto tách task: "lines" (mỗi dòng một task, không tốn Claude) hoặc "claude" (Manager tách)'),
     ("KEEP_SHIPPED", "5", "# Sau /ship, giữ lại bao nhiêu task đã ship gần nhất trên board"),
     ("CHAT_WITH_CLAUDE", "false", '# Tin thường (không có lệnh): "false" = trả lời mẫu, "true" = để Claude Manager trả lời (tốn quota)'),

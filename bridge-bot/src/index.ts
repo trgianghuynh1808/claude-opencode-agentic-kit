@@ -15,7 +15,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan"]);
 // /newroom runs the `kit` CLI that lives two folders above dist/. API_ROOT / KIT_EXTRA_ARGS exist for the end-to-end test (fake Telegram, --no-start).
 const KIT_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "kit");
 const PROJECTS_DIR = path.resolve(process.env.KIT_PROJECTS_DIR ?? path.join(os.homedir(), "Documents", "projects"));
@@ -237,7 +237,11 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    return;
+  }
+  if (command === "/plan" && !m?.[2]?.trim()) {
+    await sendRich(bot.api, ctx.chat.id, "Bạn muốn hỏi gì về project nè? 🔍\nCách dùng: `/plan <câu hỏi>`. Mình và Tech Lead sẽ đọc code rồi tổng hợp gửi bạn, không sửa gì và không tạo task nào hết.", { message_thread_id: topicId });
     return;
   }
   if (command === "/auto" && !m?.[2]?.trim()) {
@@ -495,6 +499,7 @@ if (!DISCOVERY) {
     { command: "stop", description: "Tắt AUTO_MODE, dừng nhận task mới" },
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
+    { command: "plan", description: "Hỏi đáp, phân tích project (chỉ đọc, không sửa gì)" },
     { command: "newroom", description: "Tạo phòng mới: /newroom <tên> <port>" },
   ];
   for (const scope of [{ type: "default" as const }, { type: "all_group_chats" as const }, { type: "chat" as const, chat_id: CHAT_ID }]) {

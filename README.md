@@ -532,6 +532,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
 | `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
+| `/plan <question>` | **Plan mode**: ask about the project, analyse an idea, get a plan; Tech Lead reads the code and the Manager sends you one summary. Read-only: no task, no branch, no commit, nothing is changed (see [Plan mode](#plan-mode-plan-ask-without-creating-tasks)) |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), Manager daemon, OpenCode watcher, `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
 | `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button |
 | `/newroom <name> <port> [private] [local] [agents]` | Create a Topic `project-<name>` and a whole room (see [Create a room from Telegram](#create-a-room-from-telegram-newroom)); usable in any Topic, even General |
@@ -546,6 +547,25 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 - Task plan files in `.agents/tasks/` are kept: they are part of the repository history.
 
 Fresh context is automatic: every Tech Lead call is a new `claude -p` process (no `/clear` needed), and OpenCode only continues a session between step groups of the same task.
+
+### Plan mode (`/plan`): ask without creating tasks
+
+`/auto` turns your text into tasks and starts coding. When you only want information, an opinion or a plan, use:
+
+```
+/plan Project này đang có những màn hình nào, và thêm chức năng upload ảnh thì động tới file nào?
+```
+
+Only two agents work, together, and you get **one summary message**:
+
+1. The Manager acknowledges the question and hands it to the Tech Lead.
+2. The Tech Lead (Claude) reads the repo (`AGENTS.md`, `CLAUDE.md`, the board and whatever code it needs) and writes a technical analysis with file paths, risks and what it is unsure about.
+3. The Manager (Claude, no tools) merges that with the board into a friendly message: short answer, **Góc nhìn Tech Lead**, and, when there is a concrete way to do it, ready-to-copy `/auto …` lines (only suggestions, nothing is started).
+
+**It cannot change anything.** The Tech Lead runs with `--tools "Read,Grep,Glob"`: it has no tool that can write a file or run a command (a test asked Claude to create and delete files on purpose and it could not), and `--dangerously-skip-permissions` is not used. The Manager step has no tools at all. No OpenCode, no task, no branch, no commit.
+It runs in the background, so the room keeps answering `/status` and keeps working on tasks meanwhile; one question at a time (a second `/plan` gets a polite "wait"). A question costs two Claude calls (turn caps: `MAX_TURNS_PLAN` for the reading, `MAX_TURNS_MANAGER` for the summary; models from `MODEL_TECHLEAD` / `MODEL_MANAGER`) and shows up in `/usage` as `plan: tìm hiểu` and `plan: tổng hợp`.
+If the Tech Lead fails you are told; if only the Manager fails you get the Tech Lead's analysis as it is. Every question, analysis and answer is kept in `.agents/plan/` (git-ignored), and the run log is `.agents/logs/plan.log`.
+`tools/test-plan-mode.sh` is the regression test (fake `claude`, checks the tool restriction, the background behaviour and the failure paths).
 
 ### Watching a room
 
@@ -565,13 +585,13 @@ window dashboard                      window manager
 `tmux ls` lists sessions (`agent-bridge`, `room-<name>`); `tmux attach -t room-<name>`; `Ctrl+B` then `0`/`1` switches window,
 `Ctrl+B` then `D` detaches without stopping anything. Mouse is on.
 
-Logs in `.agents/logs/` (progress messages are not logged, they go straight to Telegram): `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `usage.log` (tokens and cost per call), `ops.log` (code errors).
+Logs in `.agents/logs/` (progress messages are not logged, they go straight to Telegram): `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `plan.log` (/plan jobs), `usage.log` (tokens and cost per call), `ops.log` (code errors).
 `claude -p` prints only when a call finishes, so the log can stay quiet for minutes while Claude works. While OpenCode codes, the daemon is waiting and the log is quiet by design.
 
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`,
-`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
+`MODEL_MANAGER`, `MODEL_TECHLEAD`, `MAX_TURNS_MANAGER`, `MAX_TURNS_TECHLEAD`, `MAX_TURNS_PLAN` (40), `AUTO_SPLIT` (`lines`|`claude`), `CHAT_WITH_CLAUDE` (`false`|`true`), `KEEP_SHIPPED` (5).
 Rooms created before these keys existed use the defaults above; add the keys by hand if you want to change them.
 `run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
 staging branch. Without a `room.env` everything behaves as in the single-project mode.
@@ -624,6 +644,7 @@ claude-opencode-agentic-kit/
 │   ├── sync-knowledge.sh           # bundle the kit into kit-source.md for a Claude Project
 │   ├── kit-lib.py                  # helpers of the kit command (registry, CLAUDE.md patch, status table)
 │   ├── test-kit.sh                 # regression test of the kit command
+│   ├── test-plan-mode.sh           # regression test of /plan (read-only Q&A)
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
 │   ├── CLAUDE.md
