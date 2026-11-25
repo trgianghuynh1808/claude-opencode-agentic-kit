@@ -39,6 +39,7 @@ TODO: language/style rules taken from the existing code.
 - Only use `playwright-cli` (interactive browser tool, separate from `@playwright/test`) when a failure is visual and `results.json` is not enough, or during the Verify phase.
 - After any browser testing, clean up: close the browser and stop any dev server you started.
 - Never kill, restart or stop a process you did not start, including a dev server on the user's ports (`lsof` and `ps` are for looking only). If a server on the test port does not fit (for example a missing env var such as `ADMIN_TOKEN`), do not kill it: record the port, PID and reason in "Đã thử mà không được", leave the step unticked and stop. Prefer dedicated test ports with `reuseExistingServer: false`, so tests never depend on or disturb a dev server.
+- Notes for the approver: when something should be known before approving (a deviation from the plan, something left untested, a known bug or `test.fail`, a follow-up), write a line starting with `Lưu ý:` in "Trạng thái hiện tại". Only such lines (and "Đã thử mà không được") are relayed to the user.
 - A step that adds or changes UI ends by writing one `Selectors:` line to "Trạng thái hiện tại" (ids, classes, data-* and the file holding them). A later test step reads that line before grepping the code.
 - Use unique test data per run (e.g. usernames like `user-${Date.now()}`) so runs do not collide.
 - Tests must never touch production data.

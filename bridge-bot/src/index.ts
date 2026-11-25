@@ -68,10 +68,22 @@ async function writeInbox(room: Room, payload: Record<string, unknown>): Promise
 const pendingReactions = new Map<string, { room: Room; messageId: number }>();
 type Emoji = Parameters<typeof bot.api.setMessageReaction>[2] extends infer R ? R extends Array<{ emoji: infer E }> ? E : never : never;
 
-async function react(messageId: number, emoji: string): Promise<void> {
+const lastNotice = new Map<string, number>();
+
+/** Tell the user about a problem that would otherwise only be printed to the console, at most once per `everyMs` per kind. */
+async function notifyOnce(key: string, text: string, everyMs: number, threadId?: number): Promise<void> {
+  if (Date.now() - (lastNotice.get(key) ?? 0) < everyMs) return;
+  lastNotice.set(key, Date.now());
+  await sendRich(bot.api, CHAT_ID, text, threadId !== undefined ? { message_thread_id: threadId } : {}).catch(() => undefined);
+}
+
+async function react(messageId: number, emoji: string, threadId?: number): Promise<void> {
   await bot.api
     .setMessageReaction(CHAT_ID, messageId, [{ type: "emoji", emoji: emoji as Emoji }])
-    .catch((err) => console.error("reaction failed:", (err as Error).message));
+    .catch(async (err) => {
+      console.error("reaction failed:", (err as Error).message);
+      await notifyOnce("reaction", "Mình không thả được reaction 👀 lên tin nhắn của bạn nên không báo được là đã nhận lệnh ⚠️\nLệnh vẫn được nhận bình thường. Có thể bot thiếu quyền trong group.", 6 * 3600_000, threadId);
+    });
 }
 
 async function pollReactions(): Promise<void> {
@@ -259,7 +271,7 @@ bot.on("message:text", async (ctx) => {
 
   const file = await writeInbox(room, { from: ctx.from?.id, command, args: command ? (m?.[2] ?? "").trim() : "", text });
   pendingReactions.set(`${room.path}/${file}`, { room, messageId: ctx.message.message_id });
-  await react(ctx.message.message_id, "👀");
+  await react(ctx.message.message_id, "👀", topicId);
 });
 
 bot.on("callback_query:data", async (ctx) => {
@@ -511,6 +523,7 @@ async function pollRoom(room: Room): Promise<void> {
         await fs.mkdir(path.join(dir, "failed"), { recursive: true });
         await fs.rename(file, path.join(dir, "failed", name)).catch(() => undefined);
         attempts.delete(file);
+        await notifyOnce(`outbox-failed:${room.name}`, `Mình không gửi được một tin của phòng **${room.name}** sau ${MAX_ATTEMPTS} lần thử nên đã bỏ vào \`.agents/outbox/failed/\` ⚠️\nBạn có thể đã thiếu một tin báo. Lý do: ${(err as Error).message.slice(0, 120)}`, 30 * 60_000, room.topicId);
       }
       break; // keep order: retry this file next tick before sending later ones
     }

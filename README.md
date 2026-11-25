@@ -564,6 +564,12 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 Fresh context is automatic: every Tech Lead call is a new `claude -p` process (no `/clear` needed), and OpenCode only continues a session between step groups of the same task.
 
+**Notes for the approver (`Lưu ý`).** The agents are told to write a line starting with `Lưu ý:` (or `Cảnh báo:`) in "Trạng thái hiện tại" (or in an optional `## Lưu ý` section of the task file) whenever the approver should know something: a deviation from the plan, something left untested or tested less than the goal, a known bug (even a test marked `test.fail`), a follow-up, a non-blocking review finding. The daemon relays only explicit markers, plus the "Đã thử mà không được" section; nothing is guessed. They appear as a **Lưu ý** section in the Dev step report (new notes only, riding along with the next finished step), in the Tech Lead's end-of-task report (all notes of the task) and in the ship approval card ("Lưu ý cần xem trước khi duyệt", and `⚠️ N lưu ý` on the task line).
+
+**What the ship approval card also tells you.** A dry-run merge (`git merge-tree`, needs git 2.38+) says whether `/ship` will conflict and on which files, and mentions commits that exist on `main` but not on `staging`; each task shows its fix cycles and model escalations; and the Claude cost of the batch (calls labelled with the task ids, API list price, OpenCode not included).
+
+**Problems are not silent.** Things that used to be only logged are now told to you, once per interval so they never spam: the daemon turning AUTO_MODE off because of an unknown task state, a message the bridge gave up on (moved to `outbox/failed/`), a failing progress report, a failed `git push` for commit links (so you know why links are missing), and a failing 👀 reaction. When the Manager (Claude) approves a plan that the automatic check doubted, you get a line saying why it looked closer.
+
 **One Tech Lead report per task.** A passing Verify is not announced on its own: it waits for the merge and goes out in the single `🎉` report together with the merge commit and the pictures (a Verify that fails is told immediately). The pictures are sent only once: the ship approval then does not send them again, it just says "📸 N ảnh trong báo cáo T05 ở trên" next to the task. There is no separate "verify + review" start message either, because the Dev's "Code xong hết rồi nè" already is the hand-off signal. For the merge link to open, the daemon also pushes `staging` once per finished task (same `COMMIT_LINKS` switch). `tools/test-techlead-report.sh` covers it.
 
 ### Plan mode (`/plan`): ask without creating tasks
@@ -666,6 +672,7 @@ claude-opencode-agentic-kit/
 │   ├── test-clear.sh               # regression test of /clear and /clearlog
 │   ├── test-step-report.sh         # one Dev message per step, commit links, push once per step
 │   ├── test-techlead-report.sh     # one Tech Lead report per task, pictures sent once
+│   ├── test-notes.sh               # Lưu ý, ship-card checks, review notes, non-silent notices
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project

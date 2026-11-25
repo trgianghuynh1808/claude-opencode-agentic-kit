@@ -12,6 +12,7 @@ Used by scripts/manager-loop.sh so the Manager only needs Claude for judgement c
   room-ops.py status | stop | resume | usage [days]
   room-ops.py plan-path <slug>      path of the newest plan file for a task slug
   room-ops.py check-plan <slug>     prints OK | BLOCK: <why> | REVIEW: <why>
+  room-ops.py review-note <id> <reasons>   tell the user why a doubted plan was still approved
   room-ops.py approve <slug>        mark plan APPROVED_BY_MANAGER, commit, hand off to OpenCode
   room-ops.py block <id> <reason>   mark task BLOCKED, turn AUTO_MODE off, tell the user
   room-ops.py finalize              build the ship report (outbox, APPROVE_SHIP), phase AWAITING_SHIP_APPROVAL
@@ -388,8 +389,7 @@ def cleanup_after_ship(lines, keep):
         for t in shipped:
             for f in glob.glob(f"{AG}/status/*{t['slug']}*.status"):
                 os.remove(f); n_status += 1
-            pf = f"{PROGRESS_DIR}/{t['slug']}.json"
-            if os.path.exists(pf):
+            for pf in glob.glob(f"{PROGRESS_DIR}/{t['slug']}.*"):
                 os.remove(pf); n_prog += 1
         if n_status or n_prog:
             out.append(f"{n_status} status, {n_prog} progress")
@@ -560,6 +560,17 @@ def cmd_approve(slug):
     return f"✅ {t['id']}: plan đã duyệt, giao cho OpenCode."
 
 
+def cmd_review_note(task_id, reasons):
+    """After the Manager (Claude) looked at a plan the automatic check doubted: if it was approved, tell the user what the doubt was."""
+    t = next((t for t in tasks(read_board()) if t["id"] == task_id), None)
+    if not t or t["state"] not in ("in_progress", "done"):
+        return ""   # blocked or still waiting: the block message (or nothing yet) says enough
+    items = [r.strip() for r in re.split(r";\s*", reasons) if r.strip()]
+    emit("manager", f"Plan **{task_id}** có vài điểm mình xem kỹ trước khi duyệt 👀\n\n**Lý do kiểm tra kỹ**\n" + "\n".join(f"- {i}" for i in items)
+         + "\n\nMình thấy ổn nên đã duyệt và giao OpenCode. Bạn cứ đọc lại plan nếu muốn nhé.")
+    return "ok"
+
+
 def cmd_block(task_id, reason):
     lines = read_board()
     set_state(lines, task_id, "BLOCKED")
@@ -602,6 +613,52 @@ def verify_info(t):
     return mode, result
 
 
+def merge_check(main, stg):
+    """What /ship will run into: conflicts (dry-run merge) and commits that exist on main but not on staging."""
+    out = []
+    rc, res = git("merge-tree", "--write-tree", "--name-only", main, stg)
+    if rc == 0:
+        out.append(f"✅ `{main}` và `{stg}` merge sạch, `/ship` sẽ không xung đột")
+    elif rc == 1:
+        files = []
+        for line in res.splitlines()[1:]:
+            if not line.strip():
+                break
+            files.append(line.strip())
+        out.append("⚠️ `/ship` sẽ **xung đột** ở: " + ", ".join(f"`{f}`" for f in files[:6]) + ". Bạn nên xử lý trước khi ship")
+    # any other exit code: git too old for merge-tree --write-tree, say nothing rather than guess
+    rc, n = git("rev-list", "--count", f"{stg}..{main}")
+    if rc == 0 and n.strip().isdigit() and int(n) > 0:
+        out.append(f"ℹ️ `{main}` có {n.strip()} commit mà `{stg}` chưa có")
+    return out
+
+
+def task_quality(t):
+    """(fix cycles, model escalations) recorded while the task ran."""
+    fixes = esc = 0
+    try:
+        with open(f"{PROGRESS_DIR}/{t['slug']}.json", encoding="utf8") as f:
+            fixes = len(json.load(f).get("fix", []))
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(f"{PROGRESS_DIR}/{t['slug']}.esc", encoding="utf8") as f:
+            esc = len([l for l in f if l.strip()])
+    except OSError:
+        pass
+    return fixes, esc
+
+
+def batch_cost(done):
+    """Claude cost (API list price) of the calls labelled with the batch's task ids (plan, verify, review, merge)."""
+    ids = [t["id"] for t in done]
+    total = 0.0
+    for r in usage_rows():
+        if any(str(r.get("label", "")).startswith(i + " ") for i in ids):
+            total += r.get("cost_usd", 0) or 0
+    return total
+
+
 def cmd_finalize():
     lines = read_board()
     e = read_env()
@@ -609,6 +666,7 @@ def cmd_finalize():
     done = [t for t in tasks(lines) if t["state"] == "done"]
     out = ["Xong hết rồi nè! 🎉 Giờ chỉ còn chờ bạn duyệt ship thôi.", "", "**Việc đã hoàn thành**"]
     evidence = []   # (task, images) in task order; sent first so the Ship button ends up at the bottom
+    task_notes_out = []
     for t in done:
         mode, result = verify_info(t)
         imgs = task_screenshots(t)
@@ -621,7 +679,24 @@ def cmd_finalize():
             note = "Verify bỏ qua (task không ảnh hưởng giao diện), không có ảnh"
         else:
             note = f"Verify {result or mode}, không có ảnh chụp"
-        out.append(f"- **{t['id']}** · {short(t['title'], 90)} · {note}")
+        notes = task_notes(plan_text(t["slug"]))
+        fixes, esc = task_quality(t)
+        extra = ([f"⚠️ {len(notes)} lưu ý"] if notes else []) + ([f"{fixes} vòng sửa"] if fixes else []) + ([f"{esc} lần leo thang model"] if esc else [])
+        out.append(f"- **{t['id']}** · {short(t['title'], 90)} · {note}" + (" · " + " · ".join(extra) if extra else ""))
+        if notes:
+            task_notes_out.append((t, notes))
+    if task_notes_out:
+        out += ["", "**Lưu ý cần xem trước khi duyệt**"]
+        for t, notes in task_notes_out:
+            out += [f"- **{t['id']}**: {short(n, 170)}" for n in notes[:3]]
+            if len(notes) > 3:
+                out.append(f"  … và {len(notes) - 3} lưu ý nữa trong báo cáo của {t['id']}")
+    checks = merge_check(main, stg)
+    if checks:
+        out += ["", "**Trước khi ship**"] + [f"- {c}" for c in checks]
+    cost = batch_cost(done)
+    if cost > 0:
+        out += ["", f"**Chi phí Claude của batch này:** ~${cost:.2f} (giá list API, chưa gồm OpenCode)"]
     rc, log = git("log", "--oneline", f"{main}..{stg}")
     if rc == 0 and log:
         out += ["", f"**Commit mới trên nhánh {stg}** (chưa có trong {main})"] + [f"- `{l.split(' ', 1)[0]}` {short(l.split(' ', 1)[1] if ' ' in l else '', 90)}" for l in log.splitlines()[:15]]
@@ -715,6 +790,47 @@ def git_remote_cmd(*args, timeout=40):
         return False
 
 
+def notify_once(kind, text, every_s=1800):
+    """Tell the user about a problem that would otherwise only be logged, at most once per `every_s` seconds per kind."""
+    d = f"{AG}/notices"
+    os.makedirs(d, exist_ok=True)
+    f = f"{d}/{kind}"
+    if os.path.exists(f) and time.time() - os.path.getmtime(f) < every_s:
+        return False
+    open(f, "w").close()
+    emit("manager", text)
+    return True
+
+
+NOTE_RE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(?:lưu ý|cảnh báo|warning|note)\b[^:\n]{0,24}:\s*\**\s*(.+)$", re.I)
+
+
+def task_notes(text):
+    """Warnings and notes the agents wrote for the person who approves: lines starting with 'Lưu ý:' / 'Cảnh báo:' / 'Warning:' /
+    'Note:' in 'Trạng thái hiện tại' or 'Verify', everything in an optional '## Lưu ý' section, and what is in 'Đã thử mà không được'.
+    Only explicit markers count: nothing is guessed."""
+    notes = []
+    for name in ("Trạng thái hiện tại", "Verify"):
+        for line in section_lines(text, name):
+            m = NOTE_RE.match(line)
+            if m:
+                notes.append(m.group(1).strip())
+    for line in section_lines(text, "Lưu ý"):
+        body = line.lstrip("-*• ").strip()
+        if body:
+            notes.append(body)
+    for line in section_lines(text, "Đã thử mà không được"):
+        body = line.lstrip("-*• ").strip()
+        if body:
+            notes.append("Đã thử không được: " + body)
+    seen, out = set(), []
+    for n in notes:
+        if n and n not in seen:
+            seen.add(n)
+            out.append(short(n, 220))
+    return out
+
+
 def push_branch(branch, st, key="push_retry_at"):
     """Push a branch so the commit links in a report open on GitHub. Returns True when the links will work."""
     if read_env().get("COMMIT_LINKS", "true") != "true" or not repo_web_url():
@@ -724,6 +840,8 @@ def push_branch(branch, st, key="push_retry_at"):
     if git_remote_cmd("push", "-q", "origin", branch):
         return True
     st[key] = time.time() + 600   # offline or no rights: do not retry on every tick
+    notify_once("push-failed", "Mình chưa push được nhánh lên GitHub nên các báo cáo tạm thời **không có link commit** 🔗\nBạn kiểm tra giúp mình đăng nhập git và quyền ghi của repo nhé. "
+                "Muốn tắt hẳn việc push này thì đặt `COMMIT_LINKS=\"false\"` trong `.agents/room.env`.", 6 * 3600)
     return False
 
 
@@ -755,7 +873,7 @@ def plan_mtime(slug):
     return os.path.getmtime(p) if p and os.path.exists(p) else 0
 
 
-def step_report(slug, total, done_steps, commits, changed, linked):
+def step_report(slug, total, done_steps, commits, changed, linked, notes=None):
     """ONE message for finished step(s): description with difficulty and model, commits (linked), test results."""
     base = repo_web_url()
     nums = ", ".join(str(x[0]) for x in done_steps)
@@ -774,6 +892,8 @@ def step_report(slug, total, done_steps, commits, changed, linked):
         out += [f"- {k} {'✅ PASS' if v == 'PASS' else '❌ FAIL'}" for k, v in changed]
     else:
         out.append("- Bước này chưa có test nào đổi kết quả")
+    if notes:
+        out += ["", "**Lưu ý**"] + [f"- ⚠️ {short(n, 200)}" for n in notes[:5]]
     return "\n".join(out)
 
 
@@ -836,13 +956,15 @@ def cmd_progress(slug, flush=False):
     done_steps = [x for x in steps if x[1] and x[0] not in st["steps"]]
     new_commits = [c for c in dev_commits if c[0] not in st["commits"]]
     changed = [(k, v) for k, v in tests.items() if v in ("PASS", "FAIL") and st["tests"].get(k) != v]
+    new_notes = [n for n in task_notes(text) if n not in st.get("notes", [])]   # notes ride along like commits and tests
     settled = flush or (time.time() - plan_mtime(slug) >= SETTLE_S)
-    if (done_steps and settled) or (flush and (new_commits or changed)):
+    if (done_steps and settled) or (flush and (new_commits or changed or new_notes)):
         linked = push_task_branch(slug, st) if new_commits else False
-        emit("dev", step_report(slug, total, done_steps, new_commits, changed, linked))
+        emit("dev", step_report(slug, total, done_steps, new_commits, changed, linked, new_notes))
         st["steps"] += [x[0] for x in done_steps]
         st["commits"] += [c[0] for c in new_commits]
         st["tests"].update(dict(changed))
+        st["notes"] = st.get("notes", []) + new_notes
         sent += 1
 
     # D. Tech Lead: Verify. A PASS is kept for the single end-of-task report (F); a FAIL is told right away because a fix cycle follows.
@@ -890,6 +1012,9 @@ def cmd_progress(slug, flush=False):
         if rc == 0:
             sha, _, sub = last.partition(" ")
             out += ["", "**Merge**", f"- [{sha}]({base}/commit/{sha}) {short(sub, 100)}" if linked and base else f"- `{sha}` {short(sub, 100)}"]
+        all_notes = task_notes(text)
+        if all_notes:
+            out += ["", "**Lưu ý**"] + [f"- ⚠️ {short(n, 200)}" for n in all_notes[:6]]
         imgs = [f for f in task_screenshots(t, 4, recorded=st.get("task_shots", [])) if f not in st.get("shots_sent", [])]
         if imgs:
             out += ["", "📸 Ảnh mình chụp lúc verify ở dưới nè"]
@@ -1097,7 +1222,15 @@ def main(argv):
         print(simple[c]())
         return 0
     if c == "progress":
-        print(cmd_progress(a[0], "--flush" in a[1:]))
+        try:
+            print(cmd_progress(a[0], "--flush" in a[1:]))
+        except Exception as e:   # the reports must not stop silently: tell the user once, then fail loudly into ops.log
+            notify_once("progress-error", "Mình đang gặp lỗi khi tạo báo cáo tiến độ nên có thể sẽ **thiếu vài tin báo** ⚠️\n"
+                        f"Task vẫn chạy bình thường. Lỗi: `{type(e).__name__}`, chi tiết trong `.agents/logs/ops.log`.")
+            raise
+        return 0
+    if c == "review-note":
+        print(cmd_review_note(a[0], " ".join(a[1:])))
         return 0
     if c == "plan-path":
         print(plan_path(a[0]))

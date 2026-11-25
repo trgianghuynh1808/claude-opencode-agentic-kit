@@ -154,7 +154,8 @@ techlead_prompt() { # phase id slug [opencode-status plan-file]
 Nhánh nền là '$STAGING_BRANCH' (không phải $MAIN_BRANCH). Task: $2, slug: $3 (xem tiêu đề trên .agents/board.md).
 Không hỏi người dùng, không dừng chờ input. Gặp việc không làm được: đặt task thành [BLOCKED] trên board.md, ghi lý do vào Activity Log, rồi dừng.
 KHÔNG kill hay dừng tiến trình bạn không tự khởi động (kể cả dev server của người dùng). Nếu server đang chạy không phù hợp (thiếu biến môi trường như ADMIN_TOKEN), hãy dùng cổng khác cho server của bạn hoặc ghi rõ vào mục Verify; đừng kill server của người dùng.
-Daemon tự báo tiến độ cho user từ file task và git (plan, bước xong, test, Verify, vòng sửa, merge), nên bạn KHÔNG cần viết tin: chỉ cần giữ file task đúng mẫu (tick checkbox từng bước ngay khi xong, cập nhật mục Test status dạng T1: PASS|FAIL, viết mục ## Verify và dòng cuối VERIFY: PASS|FAIL) và lưu ảnh vào .agents/screenshots/. Chỉ ghi file JSON vào .agents/outbox/ (ghi ra .tmp rồi đổi tên thành <unix-ts>-techlead-<n>.json) khi cần user quyết định điều gì: {\"from\": \"techlead\", \"text\": \"...\"}. Giọng văn: tiếng Việt thân thiện, thoải mái, xưng mình và gọi bạn, có thể dùng emoji vừa phải. Trình bày dễ đọc: tách mục bằng dòng trống, dùng **chữ đậm** cho tiêu đề, gạch đầu dòng - cho danh sách, dấu ngược cho tên file hoặc lệnh. Ngắn gọn, tối đa khoảng 8 dòng. Không đưa secret vào tin."
+Daemon tự báo tiến độ cho user từ file task và git (plan, bước xong, test, Verify, vòng sửa, merge), nên bạn KHÔNG cần viết tin: chỉ cần giữ file task đúng mẫu (tick checkbox từng bước ngay khi xong, cập nhật mục Test status dạng T1: PASS|FAIL, viết mục ## Verify và dòng cuối VERIFY: PASS|FAIL) và lưu ảnh vào .agents/screenshots/. Chỉ ghi file JSON vào .agents/outbox/ (ghi ra .tmp rồi đổi tên thành <unix-ts>-techlead-<n>.json) khi cần user quyết định điều gì: {\"from\": \"techlead\", \"text\": \"...\"}. Giọng văn: tiếng Việt thân thiện, thoải mái, xưng mình và gọi bạn, có thể dùng emoji vừa phải. Trình bày dễ đọc: tách mục bằng dòng trống, dùng **chữ đậm** cho tiêu đề, gạch đầu dòng - cho danh sách, dấu ngược cho tên file hoặc lệnh. Ngắn gọn, tối đa khoảng 8 dòng. Không đưa secret vào tin.
+LƯU Ý CHO NGƯỜI DUYỆT: khi có điều người duyệt cần biết thì ghi một dòng bắt đầu bằng 'Lưu ý:' vào 'Trạng thái hiện tại' (hoặc vào mục '## Lưu ý' nếu file task có). Ví dụ: chỗ làm lệch plan, phần chưa được kiểm tra hoặc kiểm tra ít hơn mục tiêu, bug đã biết (kể cả test đánh dấu test.fail), việc nên làm tiếp, phát hiện không chặn khi review. Hệ thống chuyển những dòng này lên Telegram; chỉ dòng có tiền tố 'Lưu ý:' hoặc 'Cảnh báo:' mới được chuyển."
   case "$1" in
     plan) printf '%s\n\nVIỆC CỦA BẠN: chỉ LÊN PLAN. Checkout %s, tạo nhánh task/%s, viết plan vào .agents/tasks/<ngày>-%s.md theo CLAUDE.md, commit file plan. KHÔNG chạy scripts/handoff.sh (daemon kiểm tra plan rồi mới giao). Cuối cùng đổi task %s trên board.md từ [pending] sang [plan_ready].\nKhi lập plan: nếu một bước test phụ thuộc giao diện do bước trước trong plan tạo ra thì selector chưa tồn tại, đừng bịa. Ghi selector là ví dụ và yêu cầu bước test ĐỌC dòng Selectors trong Trạng thái hiện tại (bước giao diện sẽ ghi lại dòng này khi làm xong).\n' "$common" "$STAGING_BRANCH" "$3" "$3" "$2" ;;
     finish) printf '%s\n\nVIỆC CỦA BẠN: plan đã được duyệt và đã giao cho OpenCode. Daemon đã chờ giúp bạn: OpenCode báo trạng thái "%s" cho file plan %s. TUYỆT ĐỐI không chạy scripts/wait-task.sh. Làm tiếp từ bước Verify của Autopilot (nếu trạng thái done) hoặc Fix cycle (nếu stuck), tối đa %s vòng sửa.\nNếu cần Fix cycle: ghi bước Fix vào file plan, commit plan(fix-n), chạy scripts/handoff.sh <file plan> rồi KẾT THÚC phiên ngay: daemon sẽ chờ OpenCode và gọi lại bạn với ngữ cảnh mới (mọi thông tin phải nằm trong file plan).\nLưu ảnh verify vào .agents/screenshots/ với tên bắt đầu bằng task-NN- (NN là số của task, ví dụ task-05-portal-upload.png) và chỉ chụp ảnh của kịch bản vừa verify, vì báo cáo duyệt ship chỉ gửi ảnh gắn với từng task. Task không cần ảnh (Verify none) thì không chụp. Khi PASS: merge --squash nhánh task/%s vào %s (KHÔNG push, KHÔNG merge vào %s), xóa nhánh task, đổi task %s thành [done] và [x] trên board.md, ghi Activity Log. Nếu hết vòng sửa mà chưa đạt: [BLOCKED] + lý do.\n' "$common" "${4:-done}" "${5:-?}" "${MAX_FIX_CYCLES:-2}" "$3" "$STAGING_BRANCH" "$MAIN_BRANCH" "$2" ;;
@@ -330,7 +331,9 @@ tick_auto() {
         OK) python3 "$OPS" approve "$slug" >>"$LOGDIR/ops.log" 2>&1 \
               || log "⚠ $id: duyệt/hand-off lỗi (task đã được đánh dấu BLOCKED, xem ops.log)" ;;
         BLOCK*) python3 "$OPS" block "$id" "${verdict#BLOCK: }" >/dev/null 2>>"$LOGDIR/ops.log" ;;
-        *) run_claude manager "$(manager_prompt APPROVE_PLAN "Task: $id (slug: $slug)"$'\n'"Kiểm tra tự động nghi ngờ: ${verdict#REVIEW: }")" "$id duyệt plan" ;;
+        *) run_claude manager "$(manager_prompt APPROVE_PLAN "Task: $id (slug: $slug)"$'\n'"Kiểm tra tự động nghi ngờ: ${verdict#REVIEW: }")" "$id duyệt plan"
+           # nếu Manager đã duyệt, nói cho bạn biết plan này từng bị nghi ngờ vì sao
+           python3 "$OPS" review-note "$id" "${verdict#REVIEW: }" >/dev/null 2>>"$LOGDIR/ops.log" || true ;;
       esac ;;
     in_progress)
       report_progress "$slug"   # OpenCode đang code: báo bước/commit/test vừa xong
@@ -359,7 +362,8 @@ tick_auto() {
       set_env_key AUTO_MODE false
       say_user "**$id** đang bị chặn 🚧 (\`$slug\`)\nMình tắt chế độ tự động rồi. Bạn xem board và \`.agents/logs/\`, sau đó gõ \`/resume\` hoặc \`/stop\` nhé."
       log "$id BLOCKED — tắt AUTO_MODE" ;;
-    *) log "⚠ Trạng thái lạ '$state' ở $id — bỏ qua"; set_env_key AUTO_MODE false ;;
+    *) log "⚠ Trạng thái lạ '$state' ở $id — bỏ qua"; set_env_key AUTO_MODE false
+       say_user "Mình gặp một trạng thái lạ ở **$id** (\`$state\`) nên đã **tắt chế độ tự động** cho an toàn 🛑\nBạn xem \`board.md\` rồi gõ \`/resume\` hoặc \`/clear\` nhé." ;;
   esac
   return 0
 }

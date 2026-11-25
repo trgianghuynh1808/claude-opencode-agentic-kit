@@ -35,6 +35,9 @@ Verify mode: light
 ## Verify
 <!-- Bước Verify tự điền: từng kịch bản đã kiểm tra trên trình duyệt, PASS/FAIL, screenshot, lỗi phát hiện, dòng kết luận cuối cùng. -->
 
+## Lưu ý
+<!-- Điều người duyệt cần biết: lệch plan, phần chưa kiểm tra, bug đã biết, việc nên làm tiếp. Mỗi dòng một ý; hệ thống chuyển lên Telegram. -->
+
 ## Đã thử mà không được
 -
 
