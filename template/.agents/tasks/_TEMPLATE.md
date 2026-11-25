@@ -24,6 +24,7 @@ Verify mode: light
   - Assert: <giá trị cụ thể mong đợi sau từng thao tác>
 
 ## Trạng thái hiện tại
+<!-- Tiến độ từng bước. Bước tạo/đổi giao diện ghi thêm MỘT dòng: Selectors: #id, .class, [data-x] (file chứa chúng). Bước test đọc dòng này trước khi grep code. -->
 
 ## Test status
 - Lần chạy cuối:

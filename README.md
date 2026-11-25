@@ -262,6 +262,12 @@ Keeping tests lean is what keeps runs fast. `CLAUDE.md` tells Claude to plan **a
 
 Override the mode for one run: `VERIFY_MODE=full scripts/run-task.sh ...` · Skip Verify for one run: `VERIFY=0 scripts/run-task.sh ...`
 
+**Two rules every OpenCode step and Verify prompt carries** (in `run-task.sh`, so `kit upgrade` rolls them out; the Tech Lead gets the same in the daemon prompt and the AUTO_MODE section of `CLAUDE.md`). They come from a real run where a 22-minute test step killed the developer's dev server and then spent about 11 minutes rediscovering selectors:
+
+- **Never kill a process you did not start.** `lsof` and `ps` are for looking. If the server on a port does not fit (for example it has no `ADMIN_TOKEN`), the step does not kill it: it records the port, PID and reason in "Đã thử mà không được", leaves the step unticked and stops, so the Tech Lead decides. Projects should give their e2e tests dedicated ports with `reuseExistingServer: false` (the new `template/AGENTS.md` says so) so tests never depend on or disturb a dev server.
+- **Selector hand-off.** A step that adds or changes UI ends by writing one `Selectors: #id, .class (file)` line to "Trạng thái hiện tại". A later test step (which runs in a fresh OpenCode session) reads that line before grepping the code, instead of rediscovering the selectors. The Tech Lead is told not to invent selectors for UI the plan itself creates and to point the test step at that line.
+`tools/test-run-task-prompt.sh` checks that the prompts carry both rules.
+
 E2e tests run **headless** (no window). To watch them: `npx playwright test --ui` (step-by-step timeline with screenshots) or `--headed`; with the example config, `HEADED=1` shows the browser in the automated flow too.
 
 ---
@@ -647,6 +653,7 @@ claude-opencode-agentic-kit/
 │   ├── kit-lib.py                  # helpers of the kit command (registry, CLAUDE.md patch, status table)
 │   ├── test-kit.sh                 # regression test of the kit command
 │   ├── test-plan-mode.sh           # regression test of /plan (read-only Q&A)
+│   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
 │   ├── CLAUDE.md

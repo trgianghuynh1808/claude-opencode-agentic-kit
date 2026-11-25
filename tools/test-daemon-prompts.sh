@@ -21,6 +21,8 @@ check "không rỗng"                    '[[ -n "$p" ]]'
 check "nêu nhánh staging"             '[[ "$p" == *staging* ]]'
 check "cấm handoff ở pha plan"        '[[ "$p" == *"KHÔNG chạy scripts/handoff.sh"* ]]'
 check "hướng dẫn báo tiến độ tự động" '[[ "$p" == *"VERIFY: PASS|FAIL"* ]]'
+check "cấm kill tiến trình không tự bật" '[[ "$p" == *"KHÔNG kill hay dừng tiến trình bạn không tự khởi động"* ]]'
+check "dặn đọc dòng Selectors thay vì bịa" '[[ "$p" == *"ĐỌC dòng Selectors"* ]]'
 
 echo "techlead_prompt finish:"
 p="$(techlead_prompt finish T01 task-01-x done .agents/tasks/2026-01-01-task-01-x.md)"
@@ -28,6 +30,7 @@ check "không rỗng"                    '[[ -n "$p" ]]'
 check "cấm wait-task.sh"              '[[ "$p" == *"không chạy scripts/wait-task.sh"* ]]'
 check "nêu trạng thái OpenCode"       '[[ "$p" == *"\"done\""* ]]'
 check "nêu file plan"                 '[[ "$p" == *2026-01-01-task-01-x.md* ]]'
+check "cấm kill tiến trình (pha finish)" '[[ "$p" == *"KHÔNG kill hay dừng tiến trình bạn không tự khởi động"* ]]'
 
 echo "manager_prompt:"
 p="$(manager_prompt APPROVE_PLAN "Task: T01")"
