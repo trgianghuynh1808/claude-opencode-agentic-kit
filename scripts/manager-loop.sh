@@ -149,7 +149,15 @@ tick_auto() {
   fi
   id="$(line_id "$line")"; state="$(line_state "$line")"; slug="$(line_slug "$line")"
   case "$state" in
-    pending)     guard "$id:$state" && run_claude techlead "$(techlead_prompt plan "$id" "$slug")" "$id lên plan" ;;
+    pending)
+      # Tiền đề: watcher OpenCode phải sống trước khi bắt đầu task (không thì hand-off sẽ treo ở 'queued')
+      if ! { [[ -f "$AG/watcher.pid" ]] && kill -0 "$(cat "$AG/watcher.pid" 2>/dev/null)" 2>/dev/null; }; then
+        set_env_key AUTO_MODE false
+        say_user "⛔ Senior Dev watcher (OpenCode) không chạy nên chưa bắt đầu $id. Đã tắt AUTO_MODE. Chạy scripts/agent-room.sh start rồi /resume. Dùng /health để kiểm tra."
+        log "⛔ preflight: watcher không chạy — tắt AUTO_MODE"
+        return 0
+      fi
+      guard "$id:$state" && run_claude techlead "$(techlead_prompt plan "$id" "$slug")" "$id lên plan" ;;
     plan_ready)  guard "$id:$state" && run_claude manager "$(manager_prompt APPROVE_PLAN "Task: $id (slug: $slug)")" "$id duyệt plan" ;;
     in_progress) guard "$id:$state" && run_claude techlead "$(techlead_prompt finish "$id" "$slug")" "$id verify, review, merge" ;;
     BLOCKED)

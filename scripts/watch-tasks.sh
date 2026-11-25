@@ -8,6 +8,11 @@
 
 set -uo pipefail
 
+# pid để /health (bridge) biết watcher còn sống
+mkdir -p .agents
+echo $$ > .agents/watcher.pid
+trap 'rm -f .agents/watcher.pid' EXIT
+
 QUEUE=".agents/queue"
 STATUS_DIR=".agents/status"
 mkdir -p "$QUEUE" "$STATUS_DIR"

@@ -1,6 +1,8 @@
 import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import net from "node:net";
+import { execFile } from "node:child_process";
 
 // ---------- config ----------
 const BOT_TOKEN = process.env.BOT_TOKEN ?? "";
@@ -9,7 +11,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health"]);
 
 if (!BOT_TOKEN) {
   console.error("Set BOT_TOKEN (see .env.example).");
@@ -86,6 +88,83 @@ function safeImage(room: Room, rel: string): string | null {
   return abs.startsWith(path.resolve(room.path) + path.sep) ? abs : null;
 }
 
+
+// ---------- /health: deterministic checks, no Claude call ----------
+const run = (cmd: string, args: string[], cwd?: string) =>
+  new Promise<{ ok: boolean; out: string }>((resolve) =>
+    execFile(cmd, args, { cwd, timeout: 8000 }, (err, stdout, stderr) =>
+      resolve({ ok: !err, out: (stdout || stderr || String(err?.message ?? "")).trim().split("\n")[0] })));
+
+async function pidAlive(file: string): Promise<number | null> {
+  try {
+    const pid = Number((await fs.readFile(file, "utf8")).trim());
+    if (!pid) return null;
+    process.kill(pid, 0);
+    return pid;
+  } catch { return null; }
+}
+
+const portOpen = (port: number) =>
+  new Promise<boolean>((resolve) => {
+    const sock = net.connect({ port, host: "127.0.0.1", timeout: 1500 });
+    sock.once("connect", () => { sock.destroy(); resolve(true); });
+    sock.once("error", () => resolve(false));
+    sock.once("timeout", () => { sock.destroy(); resolve(false); });
+  });
+
+async function readEnv(file: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    for (const line of (await fs.readFile(file, "utf8")).split("\n")) {
+      const m = line.match(/^([A-Z_]+)="?([^"]*)"?\s*$/);
+      if (m) out[m[1]] = m[2];
+    }
+  } catch { /* no room.env */ }
+  return out;
+}
+
+async function health(room: Room): Promise<string> {
+  const ag = path.join(room.path, ".agents");
+  const env = await readEnv(path.join(ag, "room.env"));
+  const lines: string[] = [];
+  const problems: string[] = [];
+  const ok = (m: string) => lines.push(`✅ ${m}`);
+  const bad = (m: string, why: string) => { lines.push(`❌ ${m}`); problems.push(why); };
+  const warn = (m: string) => lines.push(`⚠️ ${m}`);
+
+  ok("Bridge (đang trả lời bạn)");
+
+  for (const [role, token, label] of [["techlead", process.env.BOT_TOKEN_TECHLEAD, "Bot Tech Lead"], ["dev", process.env.BOT_TOKEN_DEV, "Bot Senior Dev"]] as const) {
+    if (!token) { warn(`${label}: dùng bot chính (chưa có token riêng)`); continue; }
+    try { const me = await roleApis[role].getMe(); ok(`${label}: @${me.username}`); }
+    catch (e) { warn(`${label}: token lỗi (${(e as Error).message}) — tin của vai này sẽ không gửi được`); }
+  }
+
+  const mgr = await pidAlive(path.join(ag, "manager.lock"));
+  mgr ? ok(`Manager daemon (pid ${mgr})`) : bad("Manager daemon không chạy", "Manager daemon (agent-room.sh start)");
+  const wat = await pidAlive(path.join(ag, "watcher.pid"));
+  wat ? ok(`Senior Dev watcher / OpenCode (pid ${wat})`) : bad("Senior Dev watcher không chạy", "watcher OpenCode (agent-room.sh start)");
+
+  const cl = await run("claude", ["--version"]);
+  cl.ok ? ok(`claude ${cl.out}`) : bad("claude CLI không chạy được", "claude CLI");
+  const oc = await run("opencode", ["--version"]);
+  oc.ok ? ok(`opencode ${oc.out}`) : bad("opencode CLI không chạy được", "opencode CLI");
+
+  const br = await run("git", ["rev-parse", "--abbrev-ref", "HEAD"], room.path);
+  const dirty = await run("git", ["status", "--porcelain"], room.path);
+  const n = dirty.out ? (await run("sh", ["-c", "git status --porcelain | wc -l"], room.path)).out.trim() : "0";
+  if (!br.ok) bad("Không phải git repo", "git repo");
+  else if (n !== "0") warn(`Git: nhánh ${br.out}, ${n} file chưa commit — hand-off sẽ bị chặn`), problems.push("cây git dơ");
+  else ok(`Git: nhánh ${br.out}, sạch`);
+
+  const port = Number(env.APP_PORT);
+  if (port) (await portOpen(port)) ? ok(`Dev server :${port}`) : warn(`Dev server :${port} chưa chạy (chỉ cần khi Verify trên trình duyệt)`);
+
+  lines.push("", `AUTO_MODE=${env.AUTO_MODE ?? "?"} · nhánh nền ${env.STAGING_BRANCH ?? "staging"}`);
+  lines.push(problems.length ? `❌ Chưa sẵn sàng: ${problems.join(", ")}` : "✅ Sẵn sàng nhận task");
+  return `🩺 Health · ${room.name}\n${lines.join("\n")}`;
+}
+
 // ---------- inbound: Telegram -> .agents/inbox ----------
 const bot = new Bot(BOT_TOKEN);
 
@@ -124,8 +203,12 @@ bot.on("message:text", async (ctx) => {
   const text = ctx.message.text;
   const m = text.match(/^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i);
   const command = m && COMMANDS.has(m[1].toLowerCase()) ? `/${m[1].toLowerCase()}` : null;
+  if (command === "/health") {
+    await ctx.reply(await health(room), { message_thread_id: topicId });
+    return;
+  }
   if (m && !command) {
-    await ctx.reply("Lệnh hợp lệ: /auto <checklist>, /status, /stop, /resume, /ship");
+    await ctx.reply("Lệnh hợp lệ: /auto <checklist>, /status, /stop, /resume, /ship, /health");
     return;
   }
   if (command === "/auto" && !m?.[2]?.trim()) {
