@@ -93,7 +93,8 @@ type SendOpts = Parameters<Bot["api"]["sendMessage"]>[2];
 /** Send as HTML; if Telegram rejects the markup, resend the raw text so a message is never lost. */
 async function sendRich(api: Bot["api"], chatId: number, text: string, opts: SendOpts = {}) {
   try {
-    return await api.sendMessage(chatId, toHtml(text), { ...opts, parse_mode: "HTML" });
+    // link_preview_options: no big GitHub card under a report that already contains the commit link
+    return await api.sendMessage(chatId, toHtml(text), { ...opts, parse_mode: "HTML", link_preview_options: { is_disabled: true } });
   } catch (err) {
     if (/parse entities|can't parse/i.test((err as Error).message)) return api.sendMessage(chatId, text, opts);
     throw err;
