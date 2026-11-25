@@ -20,7 +20,7 @@ window dashboard                      window manager
 `tmux ls` lists sessions (`agent-bridge`, `room-<name>`); `tmux attach -t room-<name>`; `Ctrl+B` then `0`/`1` switches window,
 `Ctrl+B` then `D` detaches without stopping anything. Mouse is on.
 
-Logs in `.agents/logs/` (progress messages are not logged, they go straight to Telegram): `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `plan.log` (/plan jobs), `usage.log` (tokens and cost per call), `ops.log` (code errors).
+Logs in `.agents/logs/` (progress messages are not logged, they go straight to Telegram): `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `plan.log` (/plan jobs), `usage.log` (tokens, cost and tool counts per call), `tools.log` (every tool call of each Claude call, one line each: `Read /path/file`, `Grep pattern dir`, `Bash command`; use it to see what the Tech Lead opened and where turns go), `ops.log` (code errors).
 `claude -p` prints only when a call finishes, so the log can stay quiet for minutes while Claude works. While OpenCode codes, the daemon is waiting and the log is quiet by design.
 
 ## `.agents/room.env`
@@ -42,6 +42,13 @@ Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode
 - **Turn cap per call:** `MAX_TURNS_MANAGER` (20), `MAX_TURNS_TECHLEAD` (150); a call that hits it fails instead of running on.
 - **Measure:** every Claude call is appended to `.agents/logs/usage.log` (JSON lines: role, label, model, turns, tokens, cost). `/usage` summarizes it and adds OpenCode's numbers from `opencode stats` (per project and per model; it also counts runs you start by hand and cannot split them per task). Dollar figures are API list prices, useful to compare steps, not your subscription quota.
 - `CHAT_WITH_CLAUDE="true"` lets Claude answer plain text (costs quota); the default replies with a canned help text.
+
+## Keeping Claude calls cheap
+
+- `tools.log` shows what each call read. Many `Read`/`Grep` lines on files the plan could have named means the plan's "Ngữ cảnh" is too thin.
+- A task whose plan says `Verify mode: none` takes a short path: project checks, the plan's own test cases, one diff read, merge (no browser, no whole e2e suite). Small tasks (1-2 files, no new logic) are planned in 1-2 steps.
+- OpenCode runs with `OPENCODE_PERMISSION` allowing `/tmp`, `/private/tmp` and `/var/folders` (a headless run cannot answer a permission prompt, so a step writing there used to stall). Set the variable yourself to override it.
+- The daemon checks the watcher before a plan is handed off, not only before a task starts.
 
 ## Troubleshooting (multi-room)
 
