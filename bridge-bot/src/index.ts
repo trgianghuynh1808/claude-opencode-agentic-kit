@@ -73,7 +73,11 @@ if (DISCOVERY) {
 }
 
 bot.on("message:text", async (ctx) => {
-  if (DISCOVERY || !isAdmin(ctx)) return;
+  if (DISCOVERY) return;
+  if (!isAdmin(ctx)) {
+    console.warn(`Ignored message: from.id=${ctx.from?.id} chat.id=${ctx.chat?.id} (expected ADMIN_USER_ID=${ADMIN_USER_ID}, TELEGRAM_CHAT_ID=${CHAT_ID})`);
+    return;
+  }
   const topicId = ctx.message.message_thread_id;
   if (topicId === undefined) {
     await ctx.reply("Hãy nhắn trong một Topic của project (General không có phòng).");
@@ -174,5 +178,6 @@ if (!DISCOVERY) setInterval(async () => {
 }, POLL_MS);
 
 bot.catch((err) => console.error("bot error:", err.message));
+console.log(`ADMIN_USER_ID=${ADMIN_USER_ID} TELEGRAM_CHAT_ID=${CHAT_ID}`);
 console.log(DISCOVERY ? "Discovery mode: send any message in the group/Topic to get the ids." : `Bridge bot up. Rooms file: ${ROOMS_FILE}`);
 void bot.start();
