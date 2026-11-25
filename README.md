@@ -444,6 +444,8 @@ so it needs no extra Claude calls and works even if an agent forgets to report:
 
 The `🔧`, `↗` and `⛔` messages come from `run-task.sh` itself (it knows the current step group and model); the `✅` and `🧪` ones are derived from the task file and git. The second kind relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
 Reported state is kept in `.agents/progress/<slug>.json` (git-ignored); if the daemon restarts in the middle of a task it continues from the current state instead of replaying old steps.
+**Telegram rate limit.** Telegram allows about 20 messages a minute per bot per group, shared by all Topics, and answers `429` with `retry_after` seconds when it is exceeded. The bridge waits exactly that long and sends again; the wait is kept **per bot**, so every room using a bot that was told to wait waits too. A wait longer than `MAX_RETRY_AFTER_S` (default 120) is not slept off and the outbox poller's own retry count applies. Ordering is kept: each room sends one message at a time.
+
 Messages are produced as `.agents/outbox/*.json` with a `"from"` field (`manager` | `techlead` | `dev`; default `manager`).
 
 **Tone and format.** Messages are written in a friendly, relaxed Vietnamese ("mình" / "bạn", light emoji), split into short sections, with lists for tasks and steps.
@@ -664,6 +666,7 @@ claude-opencode-agentic-kit/
 ├── bridge-bot/                     # Telegram Topics <-> .agents/inbox & outbox (Node/TypeScript, grammy)
 │   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
 │   ├── src/format.ts               # light markdown -> Telegram HTML, line-based chunking
+│   ├── src/ratelimit.ts            # 429 guard: waits retry_after, shared per bot
 │   ├── src/newroom.ts              # /newroom: argument validation, kit arguments, topic naming (pure, tested)
 │   ├── test/                       # unit tests + e2e-newroom.mjs (fake Telegram API)
 │   └── .env.example

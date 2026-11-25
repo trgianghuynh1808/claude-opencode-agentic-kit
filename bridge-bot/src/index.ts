@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard, InputFile, type Context } from "grammy";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { chunk, toHtml } from "./format.js";
+import { guardApi } from "./ratelimit.js";
 import net from "node:net";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -195,10 +196,11 @@ async function health(room: Room): Promise<string> {
 const bot = new Bot(BOT_TOKEN, botOptions);
 
 // Optional extra identities. They only send (never poll); without a token the role falls back to the main bot.
+guardApi(bot.api, "manager");
 const roleApis: Record<Role, Bot["api"]> = {
   manager: bot.api,
-  techlead: process.env.BOT_TOKEN_TECHLEAD ? new Bot(process.env.BOT_TOKEN_TECHLEAD, botOptions).api : bot.api,
-  dev: process.env.BOT_TOKEN_DEV ? new Bot(process.env.BOT_TOKEN_DEV, botOptions).api : bot.api,
+  techlead: process.env.BOT_TOKEN_TECHLEAD ? guardApi(new Bot(process.env.BOT_TOKEN_TECHLEAD, botOptions).api, "techlead") : bot.api,
+  dev: process.env.BOT_TOKEN_DEV ? guardApi(new Bot(process.env.BOT_TOKEN_DEV, botOptions).api, "dev") : bot.api,
 };
 
 if (DISCOVERY) {
