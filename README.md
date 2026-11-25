@@ -419,7 +419,7 @@ OpenCode is different: it continues one session across the steps of a task (see 
 
 ### Role identities (optional: one bot per role)
 
-Messages in a Topic come from three roles: `🧭 Manager` (reports, Ship button), `🛠 Tech Lead` (plan ready, Verify result with screenshots, merged, blocked)
+Messages in a Topic come from three roles: `🧭 Manager` (reports, Ship button), `🛠 Tech Lead` (start/finish of each of its calls, sent by the daemon itself; plus plan ready, Verify result with screenshots, merged, blocked, written by Claude from the instructions in the daemon's prompt)
 and `⌨️ Senior Dev` (OpenCode started / done / stuck, written by `watch-tasks.sh`). Roles write to `.agents/outbox/*.json` with a `"from"` field
 (`manager` | `techlead` | `dev`; default `manager`).
 
