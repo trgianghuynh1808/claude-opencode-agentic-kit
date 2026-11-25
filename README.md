@@ -363,16 +363,18 @@ Example OpenCode subagents (optional, the scripts don't need them): [`examples/o
 
 ## Multi-room mode (Telegram + Manager)
 
-Optional. Turns the 2-agent kit into three tiers that run unattended for several projects at once:
+Optional. Turns the 2-agent kit into three tiers that run unattended, for several projects at once, controlled from Telegram.
 
-| Tier | Agent | Job |
-|---|---|---|
-| Manager | Claude Code (headless, `scripts/manager-loop.sh`) | Splits your checklist into tasks on `.agents/board.md`, approves plans (Proxy Approval + guardrails), reports to you, asks for `/ship` |
-| Tech Lead | Claude Code (`CLAUDE.md`, section AUTO_MODE) | Plans, verifies, reviews, squash-merges into the `staging` branch |
-| Senior Dev | OpenCode | Implements, as before |
+| Tier | Agent | Runs as | Job |
+|---|---|---|---|
+| Manager | Claude Code | `claude -p` (headless), prompt `.agents/MANAGER.md` | Splits your checklist into tasks on `.agents/board.md`, approves plans (Proxy Approval + guardrails), reports to you, merges to `main` on `/ship` |
+| Tech Lead | Claude Code | `claude -p` (headless), `CLAUDE.md` section AUTO_MODE | Plans, waits for OpenCode, verifies, reviews, squash-merges into `staging` |
+| Senior Dev | OpenCode | `watch-tasks.sh` → `run-task.sh` | Implements and runs tests, as in the single-project mode |
 
-Each project is a **room**: its own `.agents/room.env` (port, topic, branches), its own daemons, its own Telegram **Topic**.
-One **bridge bot** (`bridge-bot/`) connects a Telegram Supergroup (Topics enabled) to the rooms through files:
+`scripts/manager-loop.sh` itself is plain bash, not an AI: it reads the state on `board.md` and decides which role to call.
+
+Each project is a **room**: its own `.agents/room.env` (port, topic, branches), its own daemons (tmux/pm2), its own Telegram **Topic**.
+One **bridge bot** (`bridge-bot/`) connects a Telegram Supergroup (Topics enabled) to all rooms through files:
 Telegram message → `.agents/inbox/*.json`; Manager report/screenshots → `.agents/outbox/*.json` → Telegram.
 
 ```
@@ -383,59 +385,112 @@ Telegram Topic #b ─┼─► bridge-bot ◄─ files ─►┤
 
 ### Flow in AUTO_MODE
 
-1. `/auto <checklist>` → Manager writes tasks `[pending]` and creates `staging` from `main`.
-2. Per task, the daemon runs one step at a time (state is on `board.md`):
-   `pending` → Tech Lead writes the plan → `plan_ready` → Manager approves (or `BLOCKED` on a guardrail) and hands off →
-   `in_progress` → OpenCode codes, Tech Lead verifies/reviews and squash-merges into `staging` → `done`.
+1. `/auto <checklist>` → Manager writes the tasks as `[pending]` on `board.md` and creates `staging` from `main`.
+2. For each task, the daemon runs one step at a time (state lives on `board.md`):
+
+   | State | Who acts | Next state |
+   |---|---|---|
+   | `pending` | Tech Lead writes the plan on branch `task/<slug>` (no hand-off yet) | `plan_ready` |
+   | `plan_ready` | Manager checks the guardrails, hands off to OpenCode | `in_progress` (or `BLOCKED`) |
+   | `in_progress` | OpenCode codes; Tech Lead waits, verifies, reviews, fixes (max `MAX_FIX_CYCLES`), squash-merges into `staging` | `done` |
+
 3. All tasks done → phase `AWAITING_SHIP_APPROVAL`; you get a report with screenshots and a **Ship** button.
 4. `/ship` merges `staging` into `main` and pushes. Nothing reaches `main` without it.
 
-Safety: the daemon never loops on a stuck state (same task/state twice without progress turns AUTO_MODE off and tells you).
-Guardrails block plans that touch `.env`/secrets/CI config, destructive migrations, or drift from the task.
-The daemon calls `claude -p ... --dangerously-skip-permissions` (override with `CLAUDE_FLAGS`), so run rooms only on projects and machines you trust.
+**Fresh context per call.** Every `claude -p` call is a new process with an empty context window. State is passed through files
+(`board.md`, the task file, git, `CLAUDE.md`/`AGENTS.md`), never through memory, so anything the next step needs must be written there.
+OpenCode is different: it continues one session across the steps of a task (see `FRESH_RULES`).
 
-### Setup
+**Safety**
+- The daemon never loops on a stuck state: the same task/state twice without progress turns AUTO_MODE off and tells you (`/resume` to retry).
+- Guardrails block plans that touch `.env`/secrets/CI config, destructive migrations, or drift from the task.
+- Only `ADMIN_USER_ID` in `TELEGRAM_CHAT_ID` is obeyed; screenshots are only sent from inside the room directory.
+- The daemon runs `claude -p ... --dangerously-skip-permissions` (override with `CLAUDE_FLAGS`). The Manager's "no application code" rule is a prompt instruction, not enforced by the system. Run rooms only on projects and machines you trust.
+- Quota: a task costs about 3 Claude calls (plan, approve, verify + review + merge); OpenCode does the heavy coding. An idle daemon costs nothing.
+
+### First-time setup (once per machine)
+
+1. **Telegram:** create a bot with @BotFather and turn **Group Privacy** off (Bot Settings). Create a Supergroup, enable **Topics**, add the bot as admin
+   (with *Manage Topics*), and create one Topic per project.
+2. **Bridge bot:** `cp bridge-bot/.env.example bridge-bot/.env` and fill `BOT_TOKEN`. Leave `ADMIN_USER_ID` and `TELEGRAM_CHAT_ID` empty,
+   run `bridge-bot/bridge.sh start`, and send any message in a Topic: the bot (discovery mode) replies with `ADMIN_USER_ID`, `TELEGRAM_CHAT_ID` and the Topic ID.
+   Put the two ids in `.env`, then `bridge-bot/bridge.sh stop && bridge-bot/bridge.sh start`.
+   `.env` format: one `KEY=value` per line, no quotes, no spaces, no trailing comments.
+
+### Add a project (once per project)
 
 ```bash
-# 1. Telegram: create a bot with @BotFather, create a Supergroup, enable Topics, add the bot as admin,
-#    create one Topic per project. Get ADMIN_USER_ID (your user id), TELEGRAM_CHAT_ID (group id, -100...),
-#    and each Topic id (message_thread_id).
-
-# 2. Bridge bot (once): fill bridge-bot/.env (BOT_TOKEN, ADMIN_USER_ID, TELEGRAM_CHAT_ID).
-#    Leave the two ids empty first: the bot starts in discovery mode and replies with your ids.
-cp bridge-bot/.env.example bridge-bot/.env
-bridge-bot/bridge.sh start | stop | status | logs     # background (pm2 or tmux), builds on first run
-
-# 3. Each project (after ./install.sh <project>)
+./install.sh /path/to/project                       # from the kit; copies scripts, .agents/MANAGER.md, .agents/kit-dir
 cd /path/to/project
-scripts/agent-room.sh init --topic 12 --port 3001   # creates .agents/room.env + board.md, registers in bridge-bot/rooms.json
+scripts/agent-room.sh init --topic <TOPIC_ID> --port <PORT>   # .agents/room.env, board.md, registers the room in bridge-bot/rooms.json
 git add -A && git commit -m "chore: add agent room"
-scripts/agent-room.sh start                         # starts the bridge if needed, then manager-loop + watch-tasks (pm2 or tmux)
-scripts/agent-room.sh status | stop
 ```
 
-`install.sh` stores the kit path in `.agents/kit-dir` so `init` registers the room in `<kit>/bridge-bot/rooms.json`
-(override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot). `rooms.json` is hot-reloaded.
+- Fill `AGENTS.md` and `.agents/config.sh` as in [First-time project setup](#first-time-project-setup).
+- `install.sh` never overwrites an existing `CLAUDE.md`. If the project already has one, append the `## AUTO_MODE` section from `template/CLAUDE.md`.
+- `<PORT>` is the dev server port; Verify uses `DEFAULT_VERIFY_URL` with its port replaced by it (so `?test=1` is kept).
+- `rooms.json` lives in `<kit>/bridge-bot/` (override with `AGENT_ROOMS_FILE`, and set the same `ROOMS_FILE` for the bot); it is hot-reloaded.
+- After upgrading the kit, re-run `./install.sh /path/to/project` when the room is idle (a dirty working tree blocks hand-off), then commit.
 
-### Telegram commands (inside a project's Topic; only `ADMIN_USER_ID` in `TELEGRAM_CHAT_ID` is obeyed)
+### Daily use
+
+```bash
+cd /path/to/project
+scripts/agent-room.sh start     # starts the bridge if needed, then the room (tmux or pm2)
+npm run dev                     # only when a task verifies in the browser; must listen on APP_PORT
+```
+
+Then chat in the project's Topic. `scripts/agent-room.sh stop` stops the room; `bridge-bot/bridge.sh stop` stops the shared bridge
+(`agent-room.sh stop` does not touch it). `status` on either script shows what is running.
+
+### Telegram commands
 
 | Command | Effect |
 |---|---|
-| `/auto <checklist>` | One item per line; turns AUTO_MODE on |
+| `/auto <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command only gets an answer |
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
-| `/ship` | Merge `staging` → `main` (only in `AWAITING_SHIP_APPROVAL`); also the **Ship** button |
+| `/ship` | Merge `staging` → `main` and push (only in `AWAITING_SHIP_APPROVAL`); also the **Ship** button |
+
+### Watching a room
+
+With tmux, `agent-room.sh start` opens session `room-<name>`:
+
+```
+window dashboard                      window manager
+┌─────────────────┬─────────────────┐ (the daemon itself)
+│ board.md        │ OpenCode        │
+│ (refresh 2s)    │ watcher         │
+├─────────────────┤                 │
+│ merged log      │                 │
+└─────────────────┴─────────────────┘
+```
+
+`tmux ls` lists sessions (`agent-bridge`, `room-<name>`); `tmux attach -t room-<name>`; `Ctrl+B` then `0`/`1` switches window,
+`Ctrl+B` then `D` detaches without stopping anything. Mouse is on.
+
+Logs in `.agents/logs/`: `activity.log` (merged, timestamped, coloured by role) and `manager.log` / `techlead.log` (full output of each call).
+`claude -p` prints only when a call finishes, so the log can stay quiet for minutes while Claude works.
 
 ### `.agents/room.env`
 
 `PROJECT_NAME`, `TELEGRAM_TOPIC_ID`, `APP_PORT`, `PLAYWRIGHT_BASE_URL`, `AUTO_MODE`, `STAGING_BRANCH`, `MAIN_BRANCH`, `MAX_FIX_CYCLES`.
-`run-task.sh` reads it (via `scripts/room-env.sh`): Verify uses `PLAYWRIGHT_BASE_URL` instead of `DEFAULT_VERIFY_URL`, and task branches
-are cut from the staging branch. Without a `room.env` everything behaves as in the single-project mode above.
-Logs: `.agents/logs/activity.log` (merged, timestamped, coloured by role), plus `manager.log` and `techlead.log` with the full output of each Claude call.
+`run-task.sh` reads it via `scripts/room-env.sh`: Verify takes `DEFAULT_VERIFY_URL` and replaces its port with `APP_PORT`, and task branches are cut from the
+staging branch. Without a `room.env` everything behaves as in the single-project mode.
 
-With tmux, `agent-room.sh start` opens session `room-<name>`: window `dashboard` (board top-left, activity log bottom-left, OpenCode watcher on the right; mouse on)
-and window `manager` (the daemon). `Ctrl+B` then `0`/`1` switches window, `Ctrl+B` then `D` detaches without stopping anything.
+### Troubleshooting (multi-room)
+
+| Symptom | Cause / fix |
+|---|---|
+| Bot is silent | The bridge prints `Ignored message: from.id=… chat.id=…` when ids differ from `.env`; fix `.env` (group ids start with `-100`) |
+| Bot starts in discovery mode | `ADMIN_USER_ID` or `TELEGRAM_CHAT_ID` is empty or malformed (quotes, spaces, comments) |
+| `Topic N chưa đăng ký` | No room uses this Topic yet: run `agent-room.sh init --topic N --port <PORT>` in the project |
+| `/status` gets `đã nhận` but no report | The room is not running (`agent-room.sh status`), or `claude` is missing |
+| Two bridges, Telegram error 409 | Another bridge process is running (an old terminal); stop it, keep only `bridge.sh` |
+| `Working tree chưa sạch` on hand-off | Something in the project is uncommitted; commit it, then `/resume` |
+| Room stops itself | A task was stuck or BLOCKED; read `.agents/logs/` and the board, then `/resume` or `/stop` |
+| `command not found: agent-room.sh` | Run it from the project root as `scripts/agent-room.sh` |
 
 ## Repository layout
 
@@ -461,6 +516,8 @@ claude-opencode-agentic-kit/
 │       ├── config.sh
 │       └── tasks/_TEMPLATE.md
 ├── bridge-bot/                     # Telegram Topics <-> .agents/inbox & outbox (Node/TypeScript, grammy)
+│   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
+│   └── .env.example
 ├── prompts/                        # prompt templates (Vietnamese)
 │   ├── MANAGER.md                  # system prompt of the Manager (installed to .agents/MANAGER.md)
 │   ├── generate-agents-md.md
