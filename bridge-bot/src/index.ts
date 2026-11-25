@@ -220,4 +220,7 @@ bot.catch((err) => console.error("bot error:", err.message));
 console.log(`ADMIN_USER_ID=${ADMIN_USER_ID} TELEGRAM_CHAT_ID=${CHAT_ID}`);
 console.log(`Identities: manager=main, techlead=${process.env.BOT_TOKEN_TECHLEAD ? "own bot" : "main bot (label)"}, dev=${process.env.BOT_TOKEN_DEV ? "own bot" : "main bot (label)"}`);
 console.log(DISCOVERY ? "Discovery mode: send any message in the group/Topic to get the ids." : `Bridge bot up. Rooms file: ${ROOMS_FILE}`);
-void bot.start();
+bot.start().catch((err) => {
+  console.error("Bridge stopped:", (err as Error).message);
+  process.exit(1);
+});
