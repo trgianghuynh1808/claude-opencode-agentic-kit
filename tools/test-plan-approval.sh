@@ -132,7 +132,7 @@ check "each skipped task is announced once, with the question"  '[[ "$(grep -c "
 clearbox; cmd /revise "T08 ảnh gốc là file raw.png"
 check "answering turns needs_info back into pending, feedback kept" '[[ "$(state T08)" == pending ]] && grep -q "raw.png" .agents/plan-feedback/task-08-q.md'
 check "/task is an alias of /auto"                              'cmd /task "Việc từ lệnh task" ; grep -q "Việc từ lệnh task" .agents/board.md'
-check "a blocked plan in auto mode lets the queue go on"        'OPS block T09 "thử nghiệm" >/dev/null; grep -q "chuyển sang" <<<"$(alltext)" && grep -q "AUTO_MODE=\"true\"" .agents/room.env'
+cmd /automode on; check "a blocked plan in auto mode lets the queue go on"        'OPS block T09 "thử nghiệm" >/dev/null; grep -q "chuyển sang" <<<"$(alltext)" && grep -q "AUTO_MODE=\"true\"" .agents/room.env'
 
 echo "the daemon:"
 git checkout -q staging; python3 - <<'PY'

@@ -510,12 +510,15 @@ def cmd_auto(args):
     last = max([t["i"] for t in tasks(lines)] or
                [next((i for i, l in enumerate(lines) if l.startswith("## Checklist")), marker - 1)])
     lines[last + 1:last + 1] = new
-    set_auto(lines, True, "RUNNING")
-    log_line(lines, f"/task: thêm {len(new)} task, AUTO_MODE bật.")
+    on = e.get("AUTO_MODE") == "true"
+    if on:
+        set_header(lines, "Current Phase", "RUNNING")
+    log_line(lines, f"/task: thêm {len(new)} task, chế độ tự động {'đang bật' if on else 'đang tắt'}.")
     write_board(lines)
     return ("Nhận rồi nha! 🚀 Mình ghi **" + str(len(new)) + " việc** vào board:\n\n"
             + "\n".join(f"{i + 1}. {short(t, 110)}" for i, t in enumerate(items))
-            + "\n\nĐã bật chế độ tự động, Tech Lead sẽ lên plan ngay đây ✨")
+            + ("\n\nChế độ tự động đang bật, Tech Lead sẽ lên plan ngay đây ✨" if on else
+               "\n\nChế độ tự động đang **tắt** nên mình chưa bắt đầu ⏸ Gõ `/automode on` khi bạn muốn mình chạy."))
 
 
 def cleanup_after_ship(lines, keep):
