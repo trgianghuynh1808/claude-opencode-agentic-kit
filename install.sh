@@ -72,13 +72,23 @@ mkdir -p "$TARGET/.agents/queue" "$TARGET/.agents/status"
 echo ""
 echo ".gitignore:"
 touch "$TARGET/.gitignore"
-for entry in ".agents/kit-dir" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
+for entry in ".agents/board.md" ".agents/room.env" ".agents/kit-dir" ".agents/queue/" ".agents/status/" ".agents/run.log" "test-results/" "playwright-report/"; do
   if grep -qxF "$entry" "$TARGET/.gitignore" || grep -qxF "/$entry" "$TARGET/.gitignore"; then
     echo "  • $entry đã có"
   else
     echo "$entry" >> "$TARGET/.gitignore"
     echo "  ✓ thêm $entry"
   fi
+done
+
+# board.md/room.env do daemon sửa liên tục: nếu bản cũ đã commit chúng, gỡ khỏi git (giữ file) để handoff không bị chặn vì cây dơ
+for f in .agents/board.md .agents/room.env; do
+  if git -C "$TARGET" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+    git -C "$TARGET" rm --cached -q "$f" && echo "  ✓ gỡ $f khỏi git (file vẫn còn, nhớ commit)"
+  fi
+done
+git -C "$TARGET" ls-files -v | grep '^h ' | awk '{print $2}' | while read -r f; do
+  git -C "$TARGET" update-index --no-assume-unchanged "$f" && echo "  ✓ bỏ assume-unchanged: $f"
 done
 
 echo ""
