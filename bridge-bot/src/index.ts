@@ -166,6 +166,8 @@ async function health(room: Room): Promise<string> {
   const warn = (arr: string[], m: string) => arr.push(`⚠️ ${m}`);
 
   ok(infra, "Bridge đang online (đang nói chuyện với bạn nè)");
+  try { const me = await bot.api.getMe(); ok(infra, `Bot Manager: @${me.username}`); }
+  catch (e) { bad(infra, `Bot Manager: token lỗi (${(e as Error).message})`, "bot Manager (token)"); }
   for (const [role, token, label] of [["techlead", process.env.BOT_TOKEN_TECHLEAD, "Bot Tech Lead"], ["dev", process.env.BOT_TOKEN_DEV, "Bot Senior Dev"]] as const) {
     if (!token) { warn(infra, `${label}: đang dùng chung bot chính (chưa có token riêng)`); continue; }
     try { const me = await roleApis[role].getMe(); ok(infra, `${label}: @${me.username}`); }
