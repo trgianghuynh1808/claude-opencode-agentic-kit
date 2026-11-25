@@ -125,6 +125,16 @@ action_feed() {
   done
 }
 
+# Báo ra Telegram (vai Senior Dev) qua .agents/outbox khi project là một phòng (có room.env); không thì bỏ qua.
+# Tên file = nano giây, cùng kiểu với room-ops.py để bridge gửi đúng thứ tự giữa các vai.
+say_dev() {
+  [[ -f .agents/room.env ]] || return 0
+  mkdir -p .agents/outbox
+  local f; f=".agents/outbox/$(python3 -c 'import time; print(time.time_ns())')-dev.json"
+  python3 -c 'import json,sys; print(json.dumps({"from": "dev", "text": sys.argv[1]}, ensure_ascii=False))' "$1" > "$f.tmp" \
+    && mv "$f.tmp" "$f" || true
+}
+
 # In các commit mới kèm danh sách file đã sửa (mỗi commit chỉ in một lần)
 print_new_commits() {
   local head c cols
@@ -366,6 +376,7 @@ while (( runs < MAX_RUNS )); do
     if (( level > 2 )); then
       echo ""
       fail "⛔ Bước $first_step chưa xong sau khi đã thử tới model mạnh nhất."
+      say_dev "⛔ Bước $first_step chưa xong dù đã thử tới model mạnh nhất. Chuyển Tech Lead xử lý."
       echo "${BOLD}Đã thử mà không được${RESET}"
       section "Đã thử mà không được" 6 | sed 's/^/  /'
       echo ""
@@ -405,6 +416,17 @@ while (( runs < MAX_RUNS )); do
   for l in "${batch_lines[@]}"; do
     echo "  $(sed -E 's/^- \[ \] ([0-9]+)\. *(\[[^]]*\])? */\1. /' <<< "$l" | cut -c1-90)"
   done
+
+  if [[ "$first_step" == "$failed_step" ]]; then
+    say_dev_head="↗ Thử lại bước $range/$total với model mạnh hơn · [${LABELS[$level]}] · ${model#opencode-go/}"
+  else
+    say_dev_head="🔧 Đang làm bước $range/$total · [${LABELS[$level]}] · ${model#opencode-go/}"
+  fi
+  say_dev_body=""
+  for l in "${batch_lines[@]}"; do
+    say_dev_body+=$'\n'"$(sed -E 's/^- \[ \] ([0-9]+)\. *(\[[^]]*\])? *(.*)/\1. \2 \3/' <<< "$l" | cut -c1-110)"
+  done
+  say_dev "$say_dev_head$say_dev_body"
 
   prompt="Đọc AGENTS.md và $TASK. Làm LẦN LƯỢT các bước $steps_csv, không làm bước nào khác.
 Sau MỖI bước: chạy $CHECK_HINT.

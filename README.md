@@ -432,9 +432,9 @@ so it needs no extra Claude calls and works even if an agent forgets to report:
 |---|---|
 | `🧭 Manager` | Replies to commands, plan approval or block, the ship report with the **Ship** button |
 | `🛠 Tech Lead` | `▶` when each of its calls starts, `📋` plan summary (steps, tests, Verify mode), `🔎` Verify PASS/FAIL with the Verify notes and up to 3 new screenshots, `🔁` each fix cycle, `🎉` merged into `staging` |
-| `⌨️ Senior Dev` | `▶` start, `✅` each finished step (`N/total`, label, text) with its commits, `🧪` test results (`T1 PASS`), done or stuck (`watch-tasks.sh`) |
+| `⌨️ Senior Dev` | `▶` start; `🔧` which steps it is working on now (`bước 2–3/6`, difficulty label, model, step text); `↗` a retry of a step with a stronger model; `✅` each finished step with its commits; `🧪` test results (`T1 PASS`); `⛔` when a step still fails on the strongest model; done or stuck |
 
-This relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
+The `🔧`, `↗` and `⛔` messages come from `run-task.sh` itself (it knows the current step group and model); the `✅` and `🧪` ones are derived from the task file and git. The second kind relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
 Reported state is kept in `.agents/progress/<slug>.json` (git-ignored); if the daemon restarts in the middle of a task it continues from the current state instead of replaying old steps.
 Messages are produced as `.agents/outbox/*.json` with a `"from"` field (`manager` | `techlead` | `dev`; default `manager`).
 
