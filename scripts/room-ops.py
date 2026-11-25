@@ -43,6 +43,8 @@ HELP = ("Mình chỉ hiểu mấy lệnh này thôi nha 😅\n"
         "- `/health` · kiểm tra các agent\n"
         "- `/usage` · xem mức dùng token\n"
         "- `/plan <câu hỏi>` · hỏi đáp, phân tích project (chỉ đọc, không sửa gì)\n"
+        "- `/automode on|off` · bật hoặc tắt chế độ tự động\n"
+        "- `/config` · xem hoặc đổi cấu hình (`/config approval auto`)\n"
         "- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan đang chờ\n"
         "- `/clear` · dọn board và trạng thái cũ (lưu bản sao board)\n"
         "- `/clearlog` · dọn log chạy (giữ vài trăm dòng cuối)\n"
@@ -97,7 +99,55 @@ def read_board():
         return f.read().split("\n")
 
 
+BOOL_WORDS = {"true": "true", "on": "true", "bật": "true", "bat": "true", "yes": "true", "1": "true",
+              "false": "false", "off": "false", "tắt": "false", "tat": "false", "no": "false", "0": "false"}
+# name used in chat, env key, board label, kind, default, explanation. Only these can be changed from chat (never ports, branches, ids).
+CONFIG = [
+    ("approval", "PLAN_APPROVAL", "Plan Approval", ("ask", "auto"), "ask", "ask = bạn duyệt plan bằng thẻ · auto = hệ thống tự kiểm tra và duyệt"),
+    ("links", "COMMIT_LINKS", "Commit Links", "bool", "true", "bật = daemon push nhánh task lên GitHub để báo cáo có link commit"),
+    ("split", "AUTO_SPLIT", "Auto Split", ("lines", "claude"), "lines", "lines = mỗi dòng của /auto là một task · claude = Manager tách"),
+    ("chat", "CHAT_WITH_CLAUDE", "Chat With Claude", "bool", "false", "bật = Claude trả lời tin thường (tốn quota)"),
+    ("model_manager", "MODEL_MANAGER", "Manager Model", "model", "", "haiku, sonnet, opus hoặc id đầy đủ; `default` = mặc định của claude"),
+    ("model_techlead", "MODEL_TECHLEAD", "Tech Lead Model", "model", "", "như trên"),
+    ("fix_cycles", "MAX_FIX_CYCLES", "Max Fix Cycles", (1, 5), "2", "số vòng sửa tối đa trước khi báo kẹt (1 đến 5)"),
+    ("keep_shipped", "KEEP_SHIPPED", "Keep Shipped", (0, 50), "5", "số task đã ship giữ lại trên board sau /ship (0 đến 50)"),
+]
+CONFIG_LABELS = [c[2] for c in CONFIG] + ["Dev Port"]
+
+
+def config_value(env, key, default):
+    return env.get(key, default)
+
+
+def display_value(kind, value):
+    if kind == "bool":
+        return "ON" if value == "true" else "OFF"
+    if kind == "model":
+        return value or "default"
+    return value
+
+
+def config_pairs(env=None):
+    """(label, value shown on the board) for every setting that changes how the room behaves."""
+    env = read_env() if env is None else env
+    rows = [(label, display_value(kind, config_value(env, key, default))) for _, key, label, kind, default, _ in CONFIG]
+    if env.get("APP_PORT"):
+        rows.append(("Dev Port", env["APP_PORT"]))
+    return rows
+
+
+def sync_config(lines):
+    """Keep the settings block in the board header equal to room.env, so `/status` and the dashboard always show the truth."""
+    rx = re.compile(r"^- \*\*(" + "|".join(re.escape(l) for l in CONFIG_LABELS) + r"):\*\*")
+    lines[:] = [l for l in lines if not rx.match(l)]
+    at = next((i for i, l in enumerate(lines) if l.startswith("- **Staging Branch:**")), None)
+    if at is None:
+        at = next((i for i, l in enumerate(lines) if l.startswith("- **Current Phase:**")), min(2, len(lines) - 1))
+    lines[at + 1:at + 1] = [f"- **{label}:** {value}" for label, value in config_pairs()]
+
+
 def write_board(lines):
+    sync_config(lines)
     with open(BOARD, "w", encoding="utf8") as f:
         f.write("\n".join(lines))
 
@@ -199,7 +249,91 @@ def status_text():
             out.append(f"{ICON.get(t['state'], '•')} **{t['id']}** · {short(t['title'], 80)} ({STATE_VI.get(t['state'], t['state'])})")
     else:
         out += ["", "Board đang trống nè 🍃 Gõ `/auto <việc cần làm>` để mình bắt đầu nhé."]
+    out += ["", "**Cấu hình** (đổi bằng `/config`)"]
+    pretty = {"Plan Approval": lambda v: "bạn duyệt plan" if v == "ask" else "tự duyệt", "Commit Links": lambda v: "bật" if v == "ON" else "tắt",
+              "Auto Split": lambda v: "mỗi dòng một task" if v == "lines" else "Claude tách", "Chat With Claude": lambda v: "bật" if v == "ON" else "tắt"}
+    names = {"Plan Approval": "Duyệt plan", "Commit Links": "Link commit", "Auto Split": "Tách /auto", "Chat With Claude": "Claude trả lời tin thường",
+             "Manager Model": "Model Manager", "Tech Lead Model": "Model Tech Lead", "Max Fix Cycles": "Vòng sửa tối đa", "Keep Shipped": "Giữ task đã ship",
+             "Dev Port": "Cổng dev"}
+    for label, value in config_pairs(e):
+        shown = pretty.get(label, lambda v: v)(value)
+        out.append(f"- {names.get(label, label)}: **{shown}**" + (f" (`{value}`)" if label in pretty and shown != value else ""))
     return "\n".join(out)
+
+
+def cmd_automode(args):
+    arg = (args.split() or ["status"])[0].lower()
+    if arg in BOOL_WORDS and BOOL_WORDS[arg] == "false":
+        return cmd_stop()
+    lines = read_board()
+    e = read_env()
+    on = e.get("AUTO_MODE") == "true"
+    if arg not in BOOL_WORDS:
+        unfinished = [t for t in tasks(lines) if not t["done"]]
+        return (f"Chế độ tự động đang **{'BẬT' if on else 'TẮT'}** {'▶️' if on else '⏹'}\n"
+                f"- Còn {len(unfinished)} việc chưa xong · duyệt plan: **{e.get('PLAN_APPROVAL', 'ask')}**\n"
+                "Gõ `/automode on` để bật, `/automode off` để tắt, `/config` để xem cấu hình.")
+    if on:
+        return "Chế độ tự động đang bật rồi mà 😄 Bạn gõ `/status` để xem tiến độ nhé."
+    unfinished = [t for t in tasks(lines) if not t["done"]]
+    blocked = [t for t in unfinished if t["state"] == "BLOCKED"]
+    set_auto(lines, True, "RUNNING" if unfinished else "IDLE")
+    log_line(lines, "/automode on: chế độ tự động bật.")
+    write_board(lines)
+    out = ["Đã **bật chế độ tự động** ▶️", ""]
+    out.append(f"- Có **{len(unfinished)} việc** đang chờ, mình xử lý lần lượt nè" if unfinished else
+               "- Board đang trống: gõ `/auto <việc cần làm>` để giao việc")
+    out.append(f"- Duyệt plan: **{'bạn duyệt bằng thẻ' if e.get('PLAN_APPROVAL', 'ask') == 'ask' else 'tự duyệt'}**")
+    if blocked:
+        out.append(f"- ⚠️ {len(blocked)} task đang BLOCKED, gõ `/resume` để thử lại")
+    try:
+        with open(f"{AG}/watcher.pid", encoding="utf8") as f:
+            os.kill(int(f.read().strip()), 0)
+    except (OSError, ValueError):
+        out.append("- ⚠️ Senior Dev watcher (OpenCode) chưa chạy nên chưa giao việc được, dùng `/health` để kiểm tra")
+    return "\n".join(out)
+
+
+def cmd_config(args):
+    parts = args.split(None, 1)
+    e = read_env()
+    if not parts:
+        out = ["⚙️ **Cấu hình phòng**", ""]
+        for name, key, label, kind, default, why in CONFIG:
+            out.append(f"- `{name}` = **{display_value(kind, config_value(e, key, default))}** · {why}")
+        out += ["", "Đổi bằng `/config <khóa> <giá trị>`, ví dụ `/config approval auto`. Các cấu hình này cũng hiện trong `/status` và trên board."]
+        return "\n".join(out)
+    name = parts[0].lower().replace("-", "_")
+    entry = next((c for c in CONFIG if name in (c[0], c[1].lower())), None)
+    if not entry:
+        return "Mình không đổi được `" + parts[0] + "` từ chat 🙅 Khóa hợp lệ: " + ", ".join(f"`{c[0]}`" for c in CONFIG)
+    _, key, label, kind, default, why = entry
+    if len(parts) < 2:
+        return f"`{entry[0]}` hiện là **{display_value(kind, config_value(e, key, default))}**. {why}\nĐổi bằng `/config {entry[0]} <giá trị>`."
+    raw = parts[1].strip()
+    if kind == "bool":
+        val = BOOL_WORDS.get(raw.lower())
+        hint = "`on` hoặc `off`"
+    elif kind == "model":
+        val = "" if raw.lower() in ("default", "mặc định", "none", "-") else raw if re.fullmatch(r"[A-Za-z0-9._:/-]{1,80}", raw) else None
+        hint = "`haiku`, `sonnet`, `opus`, một id model hoặc `default`"
+    elif isinstance(kind, tuple) and isinstance(kind[0], int):
+        val = raw if raw.isdigit() and kind[0] <= int(raw) <= kind[1] else None
+        hint = f"một số từ {kind[0]} đến {kind[1]}"
+    else:
+        val = raw.lower() if raw.lower() in kind else None
+        hint = " hoặc ".join(f"`{k}`" for k in kind)
+    if val is None:
+        return f"Giá trị `{raw}` không hợp lệ cho `{entry[0]}` 🙅 Dùng {hint}."
+    before = config_value(e, key, default)
+    set_env(key, val)
+    lines = read_board()
+    log_line(lines, f"/config {entry[0]}: {display_value(kind, before)} → {display_value(kind, val)}.")
+    write_board(lines)
+    note = ""
+    if key == "PLAN_APPROVAL" and val == "auto" and any(t["state"] == "awaiting_plan" for t in tasks(lines)):
+        note = "\nPlan đang chờ vẫn cần bạn duyệt (`/approve`), chế độ mới áp dụng cho các plan sau."
+    return f"Đã đổi **{label}**: {display_value(kind, before)} → **{display_value(kind, val)}** ✅ Áp dụng từ lần kế tiếp, và đã cập nhật trên board.{note}"
 
 
 def cmd_stop():
@@ -1274,6 +1408,7 @@ def cmd_inbox(path):
     args = (d.get("args") or "").strip()
     e = read_env()
     if cmd == "/status":
+        write_board(read_board())   # refresh the settings block in case room.env was edited by hand
         reply = status_text()
     elif cmd == "/stop":
         reply = cmd_stop()
@@ -1289,6 +1424,10 @@ def cmd_inbox(path):
                      "không sửa gì và không tạo task nào hết.")
         else:
             return 5  # the daemon starts a read-only Q&A job (Tech Lead reads, Manager summarizes)
+    elif cmd == "/automode":
+        reply = cmd_automode(args)
+    elif cmd == "/config":
+        reply = cmd_config(args)
     elif cmd == "/approve":
         reply = cmd_plan_approve(args)
     elif cmd == "/reject":

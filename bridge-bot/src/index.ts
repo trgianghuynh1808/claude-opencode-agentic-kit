@@ -16,7 +16,7 @@ const CHAT_ID = Number(process.env.TELEGRAM_CHAT_ID ?? "");
 const ROOMS_FILE = path.resolve(process.env.ROOMS_FILE ?? "rooms.json");
 const POLL_MS = Number(process.env.POLL_MS ?? "2000");
 const MAX_ATTEMPTS = 3;
-const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog", "approve", "reject", "revise"]);
+const COMMANDS = new Set(["auto", "status", "stop", "resume", "ship", "health", "usage", "newroom", "plan", "clear", "clearlog", "approve", "reject", "revise", "automode", "config"]);
 // /newroom runs the `kit` CLI that lives two folders above dist/. API_ROOT / KIT_EXTRA_ARGS exist for the end-to-end test (fake Telegram, --no-start).
 const KIT_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "kit");
 const PROJECTS_DIR = path.resolve(process.env.KIT_PROJECTS_DIR ?? path.join(os.homedir(), "Documents", "projects"));
@@ -261,7 +261,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/auto <việc cần làm>` · mỗi dòng một việc\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật hoặc tắt chế độ tự động\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
     return;
   }
   if (command === "/plan" && !m?.[2]?.trim()) {
@@ -575,6 +575,8 @@ if (!DISCOVERY) {
     { command: "resume", description: "Chạy tiếp sau khi dừng hoặc bị kẹt" },
     { command: "ship", description: "Merge staging vào main và push" },
     { command: "plan", description: "Hỏi đáp, phân tích project (chỉ đọc, không sửa gì)" },
+    { command: "automode", description: "Bật hoặc tắt chế độ tự động: /automode on|off" },
+    { command: "config", description: "Xem hoặc đổi cấu hình: /config approval auto" },
     { command: "approve", description: "Duyệt plan đang chờ" },
     { command: "revise", description: "Nhờ Tech Lead sửa plan: /revise <góp ý>" },
     { command: "reject", description: "Hủy plan đang chờ" },

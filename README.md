@@ -523,6 +523,8 @@ Requirements: Topics enabled, the main bot (ManagerBot) is an admin with **Manag
 Safety: only `ADMIN_USER_ID` can use it, names are restricted to letters, digits, `.`, `_`, `-` and always live under `KIT_PROJECTS_DIR`, `kit` is started without a shell and without stdin, only one room is built at a time, and the confirmation card expires after 10 minutes.
 `npm test` (unit) and `npm run test:e2e` (the real bridge and the real `kit` against a fake Telegram API and a fake `gh`) in `bridge-bot/` cover it.
 
+**Settings on the board.** The board header carries a block with the current settings (`Plan Approval`, `Commit Links`, `Auto Split`, `Chat With Claude`, `Manager Model`, `Tech Lead Model`, `Max Fix Cycles`, `Keep Shipped`, `Dev Port`) next to `Auto Mode` and `Current Phase`. `room.env` stays the source of truth: the block is rewritten from it on **every board write** and on every `/status`, so it also follows a hand edit of `room.env`. `/status` lists the same settings in plain words (and the dashboard pane shows the block). `tools/test-config.sh` covers it.
+
 ### Daily use
 
 ```bash
@@ -546,6 +548,8 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume` | Continue after a stop, a stuck task or a BLOCKED task |
 | `/usage [days]` | Claude: tokens, turns and list-price cost per role plus the last 5 calls (from `.agents/logs/usage.log`). OpenCode: sessions, tokens and cost per model from `opencode stats` for this project. Default today / last 24 h, `/usage 7` for a week |
+| `/automode on\|off` | Turn the autopilot on or off without adding tasks (`off` is the same as `/stop`). `on` says how many tasks are waiting, flags BLOCKED ones, and warns if the OpenCode watcher is not running. With no argument it reports the state |
+| `/config` · `/config <key> <value>` | Show or change the settings that decide how the room behaves, from chat. Keys: `approval` (`ask`\|`auto`), `links` (`on`\|`off`), `split` (`lines`\|`claude`), `chat` (`on`\|`off`), `model_manager`, `model_techlead` (`haiku`, `sonnet`, `opus`, an id, or `default`), `fix_cycles` (1 to 5), `keep_shipped` (0 to 50). Values are validated; ports, topic ids and branches **cannot** be changed from chat. Effective from the next step, logged in the board's Activity Log |
 | `/approve [Tn]` · `/revise <feedback>` · `/reject [Tn]` | Answer the **plan card** (below) without the buttons: approve the plan waiting for you, ask the Tech Lead to change it, or cancel the task. `Tn` is optional when only one plan is waiting |
 | `/plan <question>` | **Plan mode**: ask about the project, analyse an idea, get a plan; Tech Lead reads the code and the Manager sends you one summary. Read-only: no task, no branch, no commit, nothing is changed (see [Plan mode](#plan-mode-plan-ask-without-creating-tasks)) |
 | `/clear` | Housekeeping (asks you to confirm with two buttons, idle rooms only): archives the board to `.agents/board-archive/` (newest 10 kept) and resets it, and deletes per-task state (`status`, `progress`, `queue`), old `inbox`/`outbox` messages, `/plan` Q&A files and `manager.sig`. Task numbers keep going (the next number is computed from the board, the plan files and the `task/*` branches, so branch and plan names are never reused). **Never touched:** `room.env`, plan files in git, screenshots, logs, `usage.log` |
@@ -677,6 +681,7 @@ claude-opencode-agentic-kit/
 │   ├── test-techlead-report.sh     # one Tech Lead report per task, pictures sent once
 │   ├── test-notes.sh               # Lưu ý, ship-card checks, review notes, non-silent notices
 │   ├── test-plan-approval.sh       # plan card, /approve /revise /reject, auto mode, daemon waiting
+│   ├── test-config.sh              # /automode, /config, settings block on the board
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
