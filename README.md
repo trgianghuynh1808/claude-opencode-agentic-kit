@@ -445,6 +445,9 @@ Then chat in the project's Topic. `scripts/agent-room.sh stop` stops the room; `
 
 ### Telegram commands
 
+The bot reacts on your message instead of replying: 👀 = written to the room's inbox, 👍 = the Manager handled it, 👎 = the Manager failed (the file is in `.agents/inbox/failed/`).
+The reaction state is kept in memory, so after a bridge restart a message that was still pending keeps its 👀.
+
 | Command | Effect |
 |---|---|
 | `/auto <checklist>` | One item per line; turns AUTO_MODE on. Plain text without a command only gets an answer |

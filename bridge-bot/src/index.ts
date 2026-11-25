@@ -39,10 +39,32 @@ async function writeAtomic(file: string, content: string): Promise<void> {
   await fs.rename(tmp, file);
 }
 
-async function writeInbox(room: Room, payload: Record<string, unknown>): Promise<void> {
+async function writeInbox(room: Room, payload: Record<string, unknown>): Promise<string> {
   const ts = Date.now();
-  const file = path.join(room.path, ".agents", "inbox", `${ts}-${Math.random().toString(36).slice(2, 6)}.json`);
-  await writeAtomic(file, JSON.stringify({ ts, ...payload }, null, 2));
+  const name = `${ts}-${Math.random().toString(36).slice(2, 6)}.json`;
+  await writeAtomic(path.join(room.path, ".agents", "inbox", name), JSON.stringify({ ts, ...payload }, null, 2));
+  return name;
+}
+
+// Inbox files waiting for the Manager: when one lands in processed/ or failed/, react on the user's message.
+// In memory only: after a bridge restart the 👀 stays on messages that were still pending.
+const pendingReactions = new Map<string, { room: Room; messageId: number }>();
+type Emoji = Parameters<typeof bot.api.setMessageReaction>[2] extends infer R ? R extends Array<{ emoji: infer E }> ? E : never : never;
+
+async function react(messageId: number, emoji: string): Promise<void> {
+  await bot.api
+    .setMessageReaction(CHAT_ID, messageId, [{ type: "emoji", emoji: emoji as Emoji }])
+    .catch((err) => console.error("reaction failed:", (err as Error).message));
+}
+
+async function pollReactions(): Promise<void> {
+  for (const [key, { room, messageId }] of pendingReactions) {
+    const inbox = path.join(room.path, ".agents", "inbox");
+    const name = path.basename(key);
+    const exists = (dir: string) => fs.stat(path.join(inbox, dir, name)).then(() => true, () => false);
+    if (await exists("processed")) { await react(messageId, "👍"); pendingReactions.delete(key); }
+    else if (await exists("failed")) { await react(messageId, "👎"); pendingReactions.delete(key); }
+  }
 }
 
 function isAdmin(ctx: Context): boolean {
@@ -101,8 +123,9 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  await writeInbox(room, { from: ctx.from?.id, command, args: command ? (m?.[2] ?? "").trim() : "", text });
-  await ctx.reply(`📥 ${room.name}: đã nhận ${command ?? "tin nhắn"}.`, { message_thread_id: topicId });
+  const file = await writeInbox(room, { from: ctx.from?.id, command, args: command ? (m?.[2] ?? "").trim() : "", text });
+  pendingReactions.set(`${room.path}/${file}`, { room, messageId: ctx.message.message_id });
+  await react(ctx.message.message_id, "👀");
 });
 
 bot.on("callback_query:data", async (ctx) => {
@@ -174,7 +197,10 @@ let polling = false;
 if (!DISCOVERY) setInterval(async () => {
   if (polling) return;
   polling = true;
-  try { for (const room of await loadRooms()) await pollRoom(room); } finally { polling = false; }
+  try {
+    for (const room of await loadRooms()) await pollRoom(room);
+    await pollReactions();
+  } finally { polling = false; }
 }, POLL_MS);
 
 bot.catch((err) => console.error("bot error:", err.message));
