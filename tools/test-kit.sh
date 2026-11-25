@@ -72,6 +72,13 @@ check "idle room is upgraded and committed"    'grep -q "update kit" <<<"$(git -
 check "busy room (AUTO_MODE on) is skipped"    'grep -q "đang bận" <<<"$OUT"'
 check "dirty room is skipped"                  'grep -q "cây git đang dơ" <<<"$OUT"'
 check "status lists every room"                'out="$(K status --no-bridge)"; [[ "$(grep -c "^demo-\|^existing" <<<"$out")" == 4 ]]'
+LEG="$T/projects/legacy-app"; gitinit "$LEG"; mkdir -p "$LEG/.agents" "$LEG/scripts"; touch "$LEG/.agents/config.sh" "$LEG/scripts/run-task.sh"
+mkdir -p "$T/projects/plain-app"
+SCAN="$(K scan "$T/projects")"
+check "scan finds a registered room"           'grep -q "^demo-app .*phòng (đã đăng ký)" <<<"$SCAN"'
+check "scan finds a legacy kit project"        'grep -q "^legacy-app .*kit chế độ cũ" <<<"$SCAN"'
+check "scan ignores projects without the kit"  '! grep -q "plain-app" <<<"$SCAN"'
+check "status --all lists only the unregistered" 'ALL="$(K status --all --no-bridge)"; grep -q "legacy-app" <<<"$ALL" && [[ "$(grep -c "^demo-app" <<<"$ALL")" == 1 ]]'
 K remove demo-app --yes >/dev/null
 check "remove drops it from the registry"      '! grep -q "\"demo-app\"" "$T/rooms.json"'
 check "remove keeps the project files"         '[[ -d "$P/scripts" ]]'

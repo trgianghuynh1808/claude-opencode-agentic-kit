@@ -4,7 +4,8 @@
 #   kit new <tên> --port 3001 [--topic N]      tạo project mới từ con số 0 (thư mục, git, repo GitHub) rồi gắn phòng
 #   kit add <đường dẫn> --port 3001 [--topic N]  gắn phòng cho project đã có sẵn
 #   kit upgrade [tên|đường dẫn]                cập nhật kit cho mọi phòng (hoặc một phòng), restart nếu đang chạy
-#   kit status                                 bảng tình trạng mọi phòng
+#   kit status [--all]                         bảng tình trạng mọi phòng (--all: thêm project dùng kit mà chưa có phòng)
+#   kit scan [thư mục]                         quét tìm mọi project có dấu vết của kit, kể cả chưa đăng ký
 #   kit remove <tên|đường dẫn>                 dừng phòng và gỡ khỏi bridge (giữ nguyên file)
 #
 # Cờ chung:  --topic N  --port P  --name TÊN  --agents (nhờ Claude soạn nháp AGENTS.md)  --no-start  --yes
@@ -28,7 +29,7 @@ die()  { echo "${R}⛔ $*${X}" >&2; exit 1; }
 
 # ---------- tham số ----------
 PORT=""; TOPIC=""; NAME=""; AGENTS=0; START=1; YES=0
-GITHUB=1; VIS="public"; TEMPLATE=""; DIR=""; NO_BRIDGE=0
+GITHUB=1; VIS="public"; TEMPLATE=""; DIR=""; NO_BRIDGE=0; ALL=0
 POS=()
 
 parse_args() {
@@ -43,6 +44,7 @@ parse_args() {
       --agents)    AGENTS=1; shift ;;
       --no-start)  START=0; shift ;;
       --no-bridge) NO_BRIDGE=1; shift ;;
+      --all)       ALL=1; shift ;;
       --no-github) GITHUB=0; shift ;;
       --github)    GITHUB=1; shift ;;
       --private)   VIS="private"; shift ;;
@@ -55,7 +57,7 @@ parse_args() {
   done
 }
 
-usage() { sed -n '2,14p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 confirm() {   # câu hỏi
   (( YES )) && return 0
@@ -279,9 +281,18 @@ cmd_upgrade() {
 }
 
 # ---------- kit status / remove ----------
+cmd_scan() {
+  parse_args "$@"
+  python3 "$LIB" scan "${POS[0]:-$PROJECTS_DIR}"
+}
+
 cmd_status() {
   parse_args "$@"
   python3 "$LIB" status
+  if (( ALL )); then
+    echo ""; echo "${B}Project dùng kit nhưng chưa có phòng đăng ký:${X}"
+    python3 "$LIB" scan "$PROJECTS_DIR" --unregistered
+  fi
   echo ""
   "$KIT_DIR/bridge-bot/bridge.sh" status 2>/dev/null || true
 }
@@ -305,7 +316,8 @@ case "${1:-}" in
   add)       shift; cmd_add "$@" ;;
   upgrade)   shift; cmd_upgrade "$@" ;;
   status)    shift; cmd_status "$@" ;;
+  scan)      shift; cmd_scan "$@" ;;
   remove)    shift; cmd_remove "$@" ;;
   -h|--help|help|"") usage ;;
-  *) die "Lệnh lạ: $1. Dùng: new | add | upgrade | status | remove (kit --help)" ;;
+  *) die "Lệnh lạ: $1. Dùng: new | add | upgrade | status | scan | remove (kit --help)" ;;
 esac

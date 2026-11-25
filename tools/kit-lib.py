@@ -7,6 +7,7 @@
   kit-lib.py ensure-env <project>         add missing keys to .agents/room.env -> the keys that were added
   kit-lib.py detect-port <project>        guess the dev server port from package.json
   kit-lib.py status                       table of every room
+  kit-lib.py scan [dir] [--unregistered]  find folders that carry kit files (registered or not)
   kit-lib.py unregister <name|path>       remove a room from the registry
 """
 import json
@@ -211,13 +212,53 @@ def cmd_unregister(key):
     return 0
 
 
+def cmd_scan(*args):
+    only_unreg = "--unregistered" in args
+    pos = [a for a in args if not a.startswith("--")]
+    root = os.path.realpath(pos[0]) if pos else os.path.expanduser("~/Documents/projects")
+    registered = {os.path.realpath(r.get("path", "")) for r in load_rooms()}
+    cur = kit_version()
+    rows = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        p = os.path.join(root, name)
+        if not os.path.isdir(p) or os.path.realpath(p) == KIT_DIR:
+            continue
+        has_room = os.path.exists(os.path.join(p, ".agents", "room.env"))
+        legacy = os.path.exists(os.path.join(p, ".agents", "config.sh")) or os.path.exists(os.path.join(p, "scripts", "run-task.sh"))
+        if not (has_room or legacy):
+            continue
+        reg = os.path.realpath(p) in registered
+        if only_unreg and reg:
+            continue
+        try:
+            with open(os.path.join(p, ".agents", "kit-version"), encoding="utf8") as f:
+                ver = f.read().strip()
+        except OSError:
+            ver = "?"
+        if reg:
+            kind, hint = "phòng (đã đăng ký)", "kit upgrade " + name
+        elif has_room:
+            kind, hint = "có phòng, chưa đăng ký bridge", "cd " + p + " && scripts/agent-room.sh init --topic <ID> --port <PORT>"
+        else:
+            kind, hint = "kit chế độ cũ (chưa có phòng)", "kit add " + p + " --port <PORT> --topic <ID>"
+        rows.append((name, kind, ver if ver == cur else f"{ver} (cũ)", hint))
+    if not rows:
+        print("Không có project nào dùng kit" + (" mà chưa đăng ký" if only_unreg else "") + f" trong {root}")
+        return 0
+    rows.insert(0, ("PROJECT", "LOẠI", "KIT", "GỢI Ý"))
+    widths = [max(len(r[i]) for r in rows) for i in range(3)]
+    for r in rows:
+        print("  ".join(r[i].ljust(widths[i]) for i in range(3)) + "  " + r[3])
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 1
     c, a = argv[1], argv[2:]
     table = {"rooms": cmd_rooms, "check": cmd_check, "patch-claude": cmd_patch_claude, "ensure-env": cmd_ensure_env,
-             "detect-port": cmd_detect_port, "status": cmd_status, "unregister": cmd_unregister}
+             "detect-port": cmd_detect_port, "status": cmd_status, "unregister": cmd_unregister, "scan": cmd_scan}
     if c not in table:
         print(__doc__)
         return 1
