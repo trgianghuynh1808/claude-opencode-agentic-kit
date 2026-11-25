@@ -424,7 +424,7 @@ and `⌨️ Senior Dev` (OpenCode started / done / stuck, written by `watch-task
 (`manager` | `techlead` | `dev`; default `manager`).
 
 By default all three use the main bot and only the label differs. For separate identities (own name and avatar), create two more bots in BotFather,
-add them to the group as admins, and set `BOT_TOKEN_TECHLEAD` and `BOT_TOKEN_DEV` in `bridge-bot/.env`. They only send: commands, reactions and the Ship button
+add them to the group as ordinary members (admin is not needed: they only send, and Group Privacy does not matter), and set `BOT_TOKEN_TECHLEAD` and `BOT_TOKEN_DEV` in `bridge-bot/.env`. They only send: commands, reactions and the Ship button
 stay on the main bot, so a message that needs approval is always sent by the Manager. The startup log shows which identity each role uses.
 
 ### Add a project (once per project)
