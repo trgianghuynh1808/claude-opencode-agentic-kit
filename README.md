@@ -422,9 +422,18 @@ OpenCode is different: it continues one session across the steps of a task (see 
 
 ### Role identities (optional: one bot per role)
 
-Messages in a Topic come from three roles: `🧭 Manager` (reports, Ship button), `🛠 Tech Lead` (start/finish of each of its calls, sent by the daemon itself; plus plan ready, Verify result with screenshots, merged, blocked, written by Claude from the instructions in the daemon's prompt)
-and `⌨️ Senior Dev` (OpenCode started / done / stuck, written by `watch-tasks.sh`). Roles write to `.agents/outbox/*.json` with a `"from"` field
-(`manager` | `techlead` | `dev`; default `manager`).
+Messages in a Topic come from three roles. Progress is read from the task file, the board and git by the daemon (`room-ops.py progress`),
+so it needs no extra Claude calls and works even if an agent forgets to report:
+
+| Role | Reports |
+|---|---|
+| `🧭 Manager` | Replies to commands, plan approval or block, the ship report with the **Ship** button |
+| `🛠 Tech Lead` | `▶` when each of its calls starts, `📋` plan summary (steps, tests, Verify mode), `🔎` Verify PASS/FAIL with the Verify notes and up to 3 new screenshots, `🔁` each fix cycle, `🎉` merged into `staging` |
+| `⌨️ Senior Dev` | `▶` start, `✅` each finished step (`N/total`, label, text) with its commits, `🧪` test results (`T1 PASS`), done or stuck (`watch-tasks.sh`) |
+
+This relies on the task file keeping the template shape: ticked `- [x] N.` steps, `T1: PASS|FAIL` lines under `Test status`, a `## Verify` section ending with `VERIFY: PASS|FAIL`.
+Reported state is kept in `.agents/progress/<slug>.json` (git-ignored); if the daemon restarts in the middle of a task it continues from the current state instead of replaying old steps.
+Messages are produced as `.agents/outbox/*.json` with a `"from"` field (`manager` | `techlead` | `dev`; default `manager`).
 
 By default all three use the main bot and only the label differs. For separate identities (own name and avatar), create two more bots in BotFather,
 add them to the group as ordinary members (admin is not needed: they only send, and Group Privacy does not matter), and set `BOT_TOKEN_TECHLEAD` and `BOT_TOKEN_DEV` in `bridge-bot/.env`. They only send: commands, reactions and the Ship button
@@ -491,7 +500,7 @@ window dashboard                      window manager
 `tmux ls` lists sessions (`agent-bridge`, `room-<name>`); `tmux attach -t room-<name>`; `Ctrl+B` then `0`/`1` switches window,
 `Ctrl+B` then `D` detaches without stopping anything. Mouse is on.
 
-Logs in `.agents/logs/`: `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `usage.log` (tokens and cost per call), `ops.log` (code errors).
+Logs in `.agents/logs/` (progress messages are not logged, they go straight to Telegram): `activity.log` (merged, timestamped, coloured by role), `manager.log` / `techlead.log` (full output of each call), `usage.log` (tokens and cost per call), `ops.log` (code errors).
 `claude -p` prints only when a call finishes, so the log can stay quiet for minutes while Claude works. While OpenCode codes, the daemon is waiting and the log is quiet by design.
 
 ### `.agents/room.env`
