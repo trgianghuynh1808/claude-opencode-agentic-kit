@@ -461,7 +461,8 @@ With tmux, `agent-room.sh start` opens session `room-<name>`:
 window dashboard                      window manager
 ┌─────────────────┬─────────────────┐ (the daemon itself)
 │ board.md        │ OpenCode        │
-│ (refresh 2s)    │ watcher         │
+│ (updates on     │ watcher         │
+│  change)        │                 │
 ├─────────────────┤                 │
 │ merged log      │                 │
 └─────────────────┴─────────────────┘
@@ -505,6 +506,7 @@ claude-opencode-agentic-kit/
 │   ├── room-env.sh                 # load .agents/room.env (port, URL, branches)
 │   ├── manager-loop.sh             # multi-room: Manager daemon (inbox, board, Tech Lead dispatch)
 │   ├── agent-room.sh               # multi-room: init | start | stop | status for a project room
+│   ├── board-view.sh               # multi-room: board pane of the tmux dashboard (redraws only on change)
 │   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
 │   └── notify.sh                   # desktop notification
 ├── tools/                          # kit maintenance only (not installed into projects)
