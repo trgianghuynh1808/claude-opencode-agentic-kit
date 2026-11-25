@@ -214,10 +214,14 @@ tick_auto() {
       case "$st_state" in
         queued|running)
           # Daemon tự chờ OpenCode; chỉ báo động nếu job nằm 'queued' lâu mà watcher đã chết
-          if [[ "$st_state" == queued ]] && (( $(date +%s) - ${st_ts:-0} > 180 )) && ! watcher_alive; then
+          if [[ "$st_state" == queued ]] && (( $(date +%s) - ${st_ts:-0} > 180 )); then
             set_env_key AUTO_MODE false
-            say_user "⛔ $id đang 'queued' hơn 3 phút nhưng watcher OpenCode không chạy. Đã tắt AUTO_MODE. Chạy scripts/agent-room.sh start rồi /resume."
-            log "⛔ $id queued quá lâu, watcher chết — tắt AUTO_MODE"
+            if watcher_alive; then
+              say_user "⛔ $id 'queued' hơn 3 phút dù watcher đang chạy: job có thể đã bị bỏ qua (xem pane watcher/OpenCode, nhánh git hiện tại). Đã tắt AUTO_MODE."
+            else
+              say_user "⛔ $id 'queued' hơn 3 phút và watcher OpenCode không chạy. Đã tắt AUTO_MODE. Chạy scripts/agent-room.sh start rồi /resume."
+            fi
+            log "⛔ $id queued quá lâu — tắt AUTO_MODE"
           fi
           return 1 ;;
       esac
