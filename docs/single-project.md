@@ -96,7 +96,7 @@ How deep it goes is set by the `Verify mode:` line at the top of the task file (
 | Mode | When | What the agent does |
 |---|---|---|
 | `none` | refactors, text/config changes, nothing user-visible | skips Verify |
-| `light` (default) | normal UI / feature changes | runs the suite once; opens the browser **only** for test cases a spec can't check (visual/layout), one screenshot each; no new scenarios; writes a spec only to reproduce a bug it found |
+| `light` (default) | normal UI / feature changes | runs the suite once; opens the browser **only** for test cases a spec can't check (visual/layout), one screenshot each, plus **always one screenshot of the main changed screen** when the task changes something visible (`task-NN-<what>.png`); no new scenarios; writes a spec only to reproduce a bug it found |
 | `full` | new user flows, multi-user/sync logic, risky changes | also tries up to 2 important edge scenarios and adds specs for unchecked ones (max 3 new tests) |
 
 Every mode records results in `## Verify` and ends with `VERIFY: PASS` or `VERIFY: FAIL`. The agent never changes app code.
