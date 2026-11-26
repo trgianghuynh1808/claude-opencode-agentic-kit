@@ -321,10 +321,23 @@ async function handleMessage(ctx: Context, rawText: string, imageRefs: ImageRef[
   let images = imageRefs;
 
   // A reply to one of our prompts supplies the text of the pending command.
-  const pending = prompts.take(msg.reply_to_message?.message_id, topicId);
-  if (pending && !text.startsWith("/")) {
-    text = `${pending.command} ${text}`.trim();
-    images = [...pending.images, ...images];
+  // The Telegram "reply" link is optional: the next plain message in the topic answers the prompt too.
+  if (text.startsWith("/")) {
+    prompts.clearTopic(topicId);   // a new command replaces the pending question
+  } else {
+    const open = prompts.find(msg.reply_to_message?.message_id, topicId);
+    if (open && !text && images.length) {   // pictures first, text later: keep the question open
+      if (canAttachImages(open.prompt.command.split(" ")[0])) {
+        open.prompt.images.push(...images);
+        await sendRich(bot.api, ctx.chat!.id, `📎 Mình nhận ${open.prompt.images.length} ảnh rồi. Giờ bạn gõ mô tả nhé, mình sẽ gửi kèm ảnh.`, { message_thread_id: topicId });
+        return;
+      }
+    }
+    const pending = open ? prompts.take(msg.reply_to_message?.message_id, topicId) : null;
+    if (pending) {
+      text = `${pending.command} ${text}`.trim();
+      images = [...pending.images, ...images];
+    }
   }
 
   const { isSlash, command, args } = parseSlash(text, COMMANDS);
@@ -343,7 +356,7 @@ async function handleMessage(ctx: Context, rawText: string, imageRefs: ImageRef[
   }
 
   if (images.length && !command) {   // a picture with no command: say how to use it instead of dropping it silently
-    await sendRich(bot.api, ctx.chat!.id, "Ảnh này dùng cho việc nào nè? 🖼\nGửi lại ảnh kèm chú thích `/task <mô tả>`, hoặc gõ `/task` rồi **trả lời tin nhắn hỏi** kèm ảnh. Với plan đang chờ thì dùng `/revise <góp ý>`.", { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat!.id, "Ảnh này dùng cho việc nào nè? 🖼\nGửi lại ảnh kèm chú thích `/task <mô tả>`, hoặc gõ `/task` trước, rồi gửi ảnh và mô tả ở các tin kế tiếp. Với plan đang chờ thì dùng `/revise <góp ý>`.", { message_thread_id: topicId });
     return;
   }
   if (images.length && !canAttachImages(command)) {
@@ -404,8 +417,8 @@ async function handlePlanButton(ctx: Context): Promise<void> {
   const room = (await loadRooms()).find((r) => r.topicId === Number(topic));
   if (!room || !/^T\d+$/.test(task ?? "")) return void (await ctx.answerCallbackQuery("Không hợp lệ"));
   if (action === "edit") {   // keep the buttons: the user can still approve after asking for a change
-    await ctx.answerCallbackQuery("Trả lời tin nhắn mình vừa gửi nhé");
-    const sent = await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\n**Trả lời tin nhắn này** bằng góp ý, ví dụ: tách bước 2 thành hai bước nhỏ hơn. Có ảnh minh hoạ thì đính kèm luôn nhé 📎`, {
+    await ctx.answerCallbackQuery("Gõ góp ý ở tin kế tiếp nhé");
+    const sent = await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\n**Tin nhắn kế tiếp của bạn** sẽ là góp ý, ví dụ: tách bước 2 thành hai bước nhỏ hơn. Có ảnh minh hoạ thì gửi kèm luôn nhé 📎`, {
       message_thread_id: room.topicId,
       reply_markup: { force_reply: true, input_field_placeholder: `Góp ý cho plan ${task}` },
     });
