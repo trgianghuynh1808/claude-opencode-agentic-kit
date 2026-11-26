@@ -38,6 +38,7 @@ Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode
 
 - **Mechanical work is code, not AI:** `/status`, `/stop`, `/resume`, `/ship`, `/usage`, plain-text replies, `/task` splitting, plan checks, the ship report. A room with nothing to do costs nothing.
 - **The daemon waits for OpenCode**, not Claude: Tech Lead is called again only when OpenCode is `done` or `stuck`, with a fresh context.
+- **Fewer tools per call:** Claude's built-in tool schemas weigh ~12k tokens and are re-read on every turn. The daemon starts Claude with `--tools Bash,Read,Write,Edit` (base context 28.7k → 16.2k tokens, measured). `CLAUDE_TOOLS` in `room.env` overrides the list; `CLAUDE_TOOLS=default` restores every tool.
 - **Model per role** in `.agents/room.env`: `MODEL_MANAGER`, `MODEL_TECHLEAD` (`haiku`, `sonnet`, `opus` or a full id; empty = the CLI default).
 - **Turn cap per call:** `MAX_TURNS_MANAGER` (20), `MAX_TURNS_TECHLEAD` (150); a call that hits it fails instead of running on.
 - **Measure:** every Claude call is appended to `.agents/logs/usage.log` (JSON lines: role, label, model, turns, tokens, cost). `/usage` summarizes it and adds OpenCode's numbers from `opencode stats` (per project and per model; it also counts runs you start by hand and cannot split them per task). Dollar figures are API list prices, useful to compare steps, not your subscription quota.
