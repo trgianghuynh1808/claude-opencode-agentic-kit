@@ -77,7 +77,11 @@ import json;p=".agents/progress/task-01-up.json";d=json.load(open(p));d["plan"]=
 PY
 (OPS progress task-01-up >/dev/null & OPS progress task-01-up >/dev/null & wait); [[ "$(msgs | wc -l | tr -d " ")" == 1 ]]'
 echo "/revise:"
+pause_room() { sed -i.bak 's/^AUTO_MODE=.*/AUTO_MODE="false"/' .agents/room.env; rm -f .agents/room.env.bak; }
+auto_on() { grep -q '^AUTO_MODE="true"' .agents/room.env; }
+pause_room
 cmd /revise "tách bước 1 thành hai bước nhỏ hơn"
+check "answering a plan turns a paused room back on"    'auto_on && grep -q "Auto Mode:\*\* ON" .agents/board.md'
 check "state becomes revise and the feedback is kept"   '[[ "$(state T01)" == revise ]] && grep -q "tách bước 1" .agents/plan-feedback/task-01-up.md'
 clearbox
 mkplan task-01-up "(đã sửa)"; git add -A; git commit -qm "plan(rev-1): task-01-up"
@@ -86,7 +90,8 @@ OPS progress task-01-up >/dev/null
 check "the revised plan gets a new card"                'grep -q "^\[manager|APPROVE_PLAN|T01\]" <<<"$(alltext)" && grep -q "đã sửa" <<<"$(alltext)" && [[ "$(state T01)" == awaiting_plan ]]'
 
 echo "/approve:"
-clearbox; cmd /approve T01
+clearbox; pause_room; cmd /approve T01
+check "approving a plan turns a paused room back on"    'auto_on'
 check "the task is handed to OpenCode"                  '[[ "$(state T01)" == in_progress ]] && ls .agents/queue/*.job >/dev/null 2>&1'
 check "the plan records WHO approved"                   'grep -q "APPROVED_BY_USER" .agents/tasks/*task-01-up.md'
 check "exactly one message, saying you approved"        '[[ "$(msgs | wc -l | tr -d " ")" == 1 ]] && grep -q "Bạn đã duyệt plan" <<<"$(alltext)"'
