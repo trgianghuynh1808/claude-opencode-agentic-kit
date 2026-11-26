@@ -32,6 +32,8 @@ claude-opencode-agentic-kit/
 │   ├── test-notes.sh               # Lưu ý, ship-card checks, review notes, non-silent notices
 │   ├── test-plan-approval.sh       # plan card, /approve /revise /reject, auto mode, daemon waiting
 │   ├── test-config.sh              # /automode, /config, settings block on the board
+│   ├── test-inbox-images.sh        # /task and /revise with pictures through the inbox
+│   ├── test-attachments.py         # attach_images: only inbox/files, only images
 │   ├── test-resume.sh              # /resume and /resume T03 (one blocked task, even while running)
 │   ├── test-ship-timeline.py       # per-phase timing block of the ship message
 │   ├── test-claude-result.py       # usage.log row and tools.log from Claude's stream-json output
@@ -50,6 +52,7 @@ claude-opencode-agentic-kit/
 │   ├── bridge.sh                   # start | stop | status | logs (tmux or pm2)
 │   ├── src/format.ts               # light markdown -> Telegram HTML, line-based chunking
 │   ├── src/ratelimit.ts            # 429 guard: waits retry_after, shared per bot
+│   ├── src/compose.ts              # reply prompts for commands without text, pending-prompt store, image types (pure, tested)
 │   ├── src/newroom.ts              # /newroom: argument validation, kit arguments, topic naming (pure, tested)
 │   ├── test/                       # unit tests + e2e-newroom.mjs (fake Telegram API)
 │   └── .env.example

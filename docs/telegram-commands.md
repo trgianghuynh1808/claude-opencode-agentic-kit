@@ -20,7 +20,7 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 
 | Command | Effect |
 |---|---|
-| `/task <checklist>` | One item per line; adds the tasks **and starts working** (it also resumes after a `/stop`). `/auto` is the old name. Plain text without a command gets a canned reply (no Claude call) |
+| `/task <checklist>` (+ pictures) | One item per line; adds the tasks **and starts working** (it also resumes after a `/stop`). `/auto` is the old name. Plain text without a command gets a canned reply (no Claude call) |
 | `/status` | Board summary |
 | `/stop` | AUTO_MODE off, phase IDLE |
 | `/resume [T03] [note]` | Continue after a stop, a stuck task or a BLOCKED task. With a task id it retries **only that blocked task**, even while the room is running (a blocked task is skipped and the rest carry on, so a plain `/resume` used to answer "already running"); the task waits behind the one in progress; an optional note is passed to the Tech Lead like a `/revise` note. Without an id it also retries every blocked task when the room is already running |
@@ -33,6 +33,15 @@ The reaction state is kept in memory, so after a bridge restart a message that w
 | `/clearlog [n]` | Truncates `.agents/run.log` and `.agents/logs/*` to their last `n` lines (default 200, `0` empties them); `usage.log` is kept. Idle rooms only. The logs grow forever otherwise (`run.log` of one project reached 3.6 MB) |
 | `/health` | Liveness check of the room, answered by the bridge itself (no Claude call, works even if the Manager is dead): bridge, role bots (`getMe`), the three agents each named with what runs it (Manager = the daemon, Tech Lead = Claude Code `claude -p` called by the Manager, with its model and last call, Senior Dev = the OpenCode watcher),  `claude` and `opencode` CLIs, git branch and clean tree, dev server port. Ends with *Sẵn sàng* or the list of what is missing |
 | `/ship` | Merge `staging` → `main` (commit message names the shipped tasks) and push (only in `AWAITING_SHIP_APPROVAL`), then tidy up (below); also the **Ship** button. It refuses while the working tree has uncommitted files |
+
+**Typing a command without its text.** `/task`, `/plan` and `/revise` sent with nothing after them (for example tapped from the command menu) no longer answer "empty": the bot sends a message with a reply box (*Trả lời tin nhắn này*), and **your reply becomes the command's text** (`/task` → one task per line). The prompt is valid for 30 minutes and works once. The *Sửa plan* button on a plan card does the same for `/revise T03`.
+
+**Pictures to clarify a task.** Attach screenshots or mockups (photo or image file, png/jpg/webp/gif, up to 10 MB, 5 per message; an album counts as one message) in any of these ways:
+- as the **caption** of the picture: `/task làm nút giống ảnh này`, or `/revise đổi màu như ảnh`;
+- in the **reply** to the prompt above (the picture can carry the text as its caption);
+- a picture with no command gets a hint instead of being dropped.
+
+`/task` gives the pictures to **every task** it creates; `/revise` gives them to that plan only. They are saved in `.agents/attachments/T03/` (git-ignored; removed when the task ships or on `/clear`). The Tech Lead opens each one with `Read` while planning and writes what matters into the plan's "Ngữ cảnh", because OpenCode may not see images. Other commands ignore pictures (the bot says so).
 
 **Task ids in messages.** Every task-specific message starts with the task id in bold (`**T03 · …**`): Dev step and leftover reports, Verify failures, fix-cycle notices, hand-over messages and the Tech Lead's own messages, so you can tell tasks apart when several are in flight. For the Tech Lead this is a prompt rule, not code, so a rare message may miss it.
 

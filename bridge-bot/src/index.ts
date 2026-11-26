@@ -7,6 +7,7 @@ import net from "node:net";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile, spawn } from "node:child_process";
+import { MAX_IMAGES, MAX_IMAGE_BYTES, NEEDS_TEXT, PromptStore, canAttachImages, imageExt, parseSlash, type ImageRef } from "./compose.js";
 import { kitArgs, nowNs, parseKitOutput, parseNewRoom, topicColor, topicLink, topicTitle, type NewRoomRequest } from "./newroom.js";
 
 // ---------- config ----------
@@ -241,32 +242,122 @@ if (DISCOVERY) {
   });
 }
 
+// ---------- compose: a command typed without its text gets a reply prompt; replies (and pictures) complete it ----------
+const HELP_UNKNOWN = "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/task <việc cần làm>` · giao việc, mỗi dòng một việc (`/auto` vẫn dùng được)\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật: tự duyệt plan · tắt: bạn duyệt từng plan\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp · `/resume T03` thử lại một task bị chặn\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới";
+const prompts = new PromptStore();
+const albums = new Map<string, { ctx: Context; text: string; images: ImageRef[]; timer: NodeJS.Timeout }>();
+
+/** Download a Telegram file into the room's inbox/files folder; returns the path relative to the room. */
+async function saveImage(room: Room, ref: ImageRef, n: number): Promise<string | null> {
+  try {
+    const f = await bot.api.getFile(ref.fileId);
+    if (!f.file_path) return null;
+    const res = await fetch(`${API_ROOT ?? "https://api.telegram.org"}/file/bot${BOT_TOKEN}/${f.file_path}`);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_IMAGE_BYTES) return null;
+    const rel = path.join(".agents", "inbox", "files", `${Date.now()}-${n}.${ref.ext}`);
+    await fs.mkdir(path.join(room.path, ".agents", "inbox", "files"), { recursive: true });
+    await fs.writeFile(path.join(room.path, rel), buf);
+    return rel;
+  } catch (err) {
+    console.warn("saveImage failed:", (err as Error).message);
+    return null;
+  }
+}
+
+async function askForText(ctx: Context, command: string, topicId: number, images: ImageRef[]): Promise<void> {
+  const spec = NEEDS_TEXT[command];
+  const sent = await sendRich(bot.api, ctx.chat!.id, spec.ask, {
+    message_thread_id: topicId,
+    reply_markup: { force_reply: true, selective: true, input_field_placeholder: spec.placeholder },
+  });
+  prompts.add(sent.message_id, { command, topicId, images });
+}
+
 bot.on("message:text", async (ctx) => {
   if (DISCOVERY) return;
   if (!isAdmin(ctx)) {
     console.warn(`Ignored message: from.id=${ctx.from?.id} chat.id=${ctx.chat?.id} (expected ADMIN_USER_ID=${ADMIN_USER_ID}, TELEGRAM_CHAT_ID=${CHAT_ID})`);
     return;
   }
-  const topicId = ctx.message.message_thread_id;
-  const text = ctx.message.text;
-  const m = text.match(/^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i);
-  const command = m && COMMANDS.has(m[1].toLowerCase()) ? `/${m[1].toLowerCase()}` : null;
+  await handleMessage(ctx, ctx.message.text, []);
+});
+
+// Pictures: as a photo (compressed) or as an image file. Caption = the command text; albums arrive as several messages and are merged.
+async function onImageMessage(ctx: Context, ref: ImageRef | null): Promise<void> {
+  if (DISCOVERY || !isAdmin(ctx) || !ctx.message) return;
+  const caption = ctx.message.caption ?? "";
+  if (!ref) {
+    await sendRich(bot.api, ctx.chat!.id, "Mình chỉ nhận ảnh png, jpg, webp hoặc gif (dưới 10 MB) thôi nha 🖼", { message_thread_id: ctx.message.message_thread_id });
+    return;
+  }
+  const gid = ctx.message.media_group_id;
+  if (!gid) return void (await handleMessage(ctx, caption, [ref]));
+  const cur = albums.get(gid);
+  if (cur) { clearTimeout(cur.timer); cur.images.push(ref); if (caption && !cur.text) cur.text = caption; }
+  const entry = cur ?? { ctx, text: caption, images: [ref], timer: undefined as unknown as NodeJS.Timeout };
+  entry.timer = setTimeout(() => { albums.delete(gid); void handleMessage(entry.ctx, entry.text, entry.images); }, 1500);
+  albums.set(gid, entry);
+}
+
+bot.on("message:photo", async (ctx) => {
+  const sizes = ctx.message.photo;
+  const best = sizes[sizes.length - 1];
+  await onImageMessage(ctx, { fileId: best.file_id, ext: "jpg", size: best.file_size });
+});
+
+bot.on("message:document", async (ctx) => {
+  const d = ctx.message.document;
+  const ext = imageExt(d.mime_type, d.file_name);
+  if (!ext && !d.mime_type?.startsWith("image/")) return;   // other files are not ours to handle
+  await onImageMessage(ctx, ext && (d.file_size ?? 0) <= MAX_IMAGE_BYTES ? { fileId: d.file_id, ext, size: d.file_size } : null);
+});
+
+async function handleMessage(ctx: Context, rawText: string, imageRefs: ImageRef[]): Promise<void> {
+  const msg = ctx.message!;
+  const topicId = msg.message_thread_id;
+  let text = rawText.trim();
+  let images = imageRefs;
+
+  // A reply to one of our prompts supplies the text of the pending command.
+  const pending = prompts.take(msg.reply_to_message?.message_id, topicId);
+  if (pending && !text.startsWith("/")) {
+    text = `${pending.command} ${text}`.trim();
+    images = [...pending.images, ...images];
+  }
+
+  const { isSlash, command, args } = parseSlash(text, COMMANDS);
   if (command === "/newroom") {   // works anywhere in the group, including General: it creates the Topic itself
-    await handleNewRoom(ctx, (m?.[2] ?? "").trim());
+    await handleNewRoom(ctx, args);
     return;
   }
   if (topicId === undefined) {
-    await sendRich(bot.api, ctx.chat.id, "Bạn nhắn trong **Topic của project** giúp mình nha 🙏 (khu General không có phòng nào hết). Muốn tạo phòng mới thì gõ `/newroom <tên-project> <port>` nhé.");
+    await sendRich(bot.api, ctx.chat!.id, "Bạn nhắn trong **Topic của project** giúp mình nha 🙏 (khu General không có phòng nào hết). Muốn tạo phòng mới thì gõ `/newroom <tên-project> <port>` nhé.");
     return;
   }
   const room = (await loadRooms()).find((r) => r.topicId === topicId);
   if (!room) {
-    await sendRich(bot.api, ctx.chat.id, `Topic **${topicId}** chưa có phòng nào hết 🏠\nTrong project, chạy giúp mình:\n\`scripts/agent-room.sh init --topic ${topicId} --port <PORT>\``, { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat!.id, `Topic **${topicId}** chưa có phòng nào hết 🏠\nTrong project, chạy giúp mình:\n\`scripts/agent-room.sh init --topic ${topicId} --port <PORT>\``, { message_thread_id: topicId });
     return;
   }
 
-  if (command === "/revise" && !m?.[2]?.trim()) {
-    await sendRich(bot.api, ctx.chat.id, "Bạn muốn sửa gì ở plan nè? ✏️\nCách dùng: `/revise <góp ý>`", { message_thread_id: topicId });
+  if (images.length && !command) {   // a picture with no command: say how to use it instead of dropping it silently
+    await sendRich(bot.api, ctx.chat!.id, "Ảnh này dùng cho việc nào nè? 🖼\nGửi lại ảnh kèm chú thích `/task <mô tả>`, hoặc gõ `/task` rồi **trả lời tin nhắn hỏi** kèm ảnh. Với plan đang chờ thì dùng `/revise <góp ý>`.", { message_thread_id: topicId });
+    return;
+  }
+  if (images.length && !canAttachImages(command)) {
+    await sendRich(bot.api, ctx.chat!.id, "Ảnh đính kèm dùng được với `/task` và `/revise` thôi nha 🖼 Mình bỏ ảnh đi, lệnh vẫn chạy bình thường.", { message_thread_id: topicId });
+    images = [];
+  }
+  if (images.length > MAX_IMAGES) {
+    await sendRich(bot.api, ctx.chat!.id, `Mình lấy tối đa ${MAX_IMAGES} ảnh mỗi lần nha, ${images.length - MAX_IMAGES} ảnh cuối bị bỏ 🖼`, { message_thread_id: topicId });
+    images = images.slice(0, MAX_IMAGES);
+  }
+
+  // Commands that need text but came without it: ask with a reply box instead of answering "empty".
+  if (command && NEEDS_TEXT[command] && !args) {
+    await askForText(ctx, command, topicId, images);
     return;
   }
   if (command === "/clear") {   // irreversible by git (the board is not tracked), so ask first
@@ -274,27 +365,26 @@ bot.on("message:text", async (ctx) => {
     return;
   }
   if (command === "/health") {
-    await sendRich(bot.api, ctx.chat.id, await health(room), { message_thread_id: topicId });
+    await sendRich(bot.api, ctx.chat!.id, await health(room), { message_thread_id: topicId });
     return;
   }
-  if (m && !command) {
-    await sendRich(bot.api, ctx.chat.id, "Mình chỉ hiểu mấy lệnh này thôi nha 😅\n- `/task <việc cần làm>` · giao việc, mỗi dòng một việc (`/auto` vẫn dùng được)\n- `/status` · xem tiến độ\n- `/health` · kiểm tra các agent\n- `/usage` · xem mức dùng token\n- `/plan <câu hỏi>` · hỏi đáp, phân tích (chỉ đọc)\n- `/automode on|off` · bật: tự duyệt plan · tắt: bạn duyệt từng plan\n- `/config` · xem hoặc đổi cấu hình\n- `/approve` · `/revise <góp ý>` · `/reject` · duyệt, nhờ sửa hoặc hủy plan\n- `/clear` · dọn board và trạng thái cũ\n- `/clearlog` · dọn log chạy\n- `/stop` · dừng lại\n- `/resume` · chạy tiếp · `/resume T03` thử lại một task bị chặn\n- `/ship` · đưa lên main\n- `/newroom <tên> <port>` · tạo phòng mới", { message_thread_id: topicId });
-    return;
-  }
-  if (command === "/plan" && !m?.[2]?.trim()) {
-    await sendRich(bot.api, ctx.chat.id, "Bạn muốn hỏi gì về project nè? 🔍\nCách dùng: `/plan <câu hỏi>`. Mình và Tech Lead sẽ đọc code rồi tổng hợp gửi bạn, không sửa gì và không tạo task nào hết.", { message_thread_id: topicId });
-    return;
-  }
-  if ((command === "/auto" || command === "/task") && !m?.[2]?.trim()) {
-    await sendRich(bot.api, ctx.chat.id, "Bạn cho mình biết việc cần làm nhé 📝\nCách dùng: `/task <việc cần làm>`, mỗi dòng một việc.", { message_thread_id: topicId });
+  if (isSlash && !command) {
+    await sendRich(bot.api, ctx.chat!.id, HELP_UNKNOWN, { message_thread_id: topicId });
     return;
   }
 
-  const file = await writeInbox(room, { from: ctx.from?.id, command, args: command ? (m?.[2] ?? "").trim() : "", text });
-  pendingReactions.set(`${room.path}/${file}`, { room, messageId: ctx.message.message_id });
-  await react(ctx.message.message_id, "👀", topicId);
-});
-
+  const saved: string[] = [];
+  for (const [i, ref] of images.entries()) {
+    const rel = await saveImage(room, ref, i + 1);
+    if (rel) saved.push(rel);
+  }
+  if (images.length && saved.length < images.length) {
+    await sendRich(bot.api, ctx.chat!.id, `Có ${images.length - saved.length} ảnh mình tải về không được 😢 Bạn gửi lại giúp mình nhé.`, { message_thread_id: topicId });
+  }
+  const file = await writeInbox(room, { from: ctx.from?.id, command, args: command ? args : "", text, ...(saved.length ? { images: saved } : {}) });
+  pendingReactions.set(`${room.path}/${file}`, { room, messageId: msg.message_id });
+  await react(msg.message_id, "👀", topicId);
+}
 bot.on("callback_query:data", async (ctx) => {
   if (ctx.from.id !== ADMIN_USER_ID) return void (await ctx.answerCallbackQuery());
   if (ctx.callbackQuery.data.startsWith("nr:")) return void (await handleNewRoomButton(ctx));
@@ -314,8 +404,12 @@ async function handlePlanButton(ctx: Context): Promise<void> {
   const room = (await loadRooms()).find((r) => r.topicId === Number(topic));
   if (!room || !/^T\d+$/.test(task ?? "")) return void (await ctx.answerCallbackQuery("Không hợp lệ"));
   if (action === "edit") {   // keep the buttons: the user can still approve after asking for a change
-    await ctx.answerCallbackQuery("Gõ /revise kèm góp ý nhé");
-    await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\nGõ \`/revise <góp ý>\`, ví dụ: \`/revise tách bước 2 thành hai bước nhỏ hơn\``, { message_thread_id: room.topicId });
+    await ctx.answerCallbackQuery("Trả lời tin nhắn mình vừa gửi nhé");
+    const sent = await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\n**Trả lời tin nhắn này** bằng góp ý, ví dụ: tách bước 2 thành hai bước nhỏ hơn. Có ảnh minh hoạ thì đính kèm luôn nhé 📎`, {
+      message_thread_id: room.topicId,
+      reply_markup: { force_reply: true, selective: true, input_field_placeholder: `Góp ý cho plan ${task}` },
+    });
+    prompts.add(sent.message_id, { command: `/revise ${task}`, topicId: room.topicId, images: [] });
     return;
   }
   await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
