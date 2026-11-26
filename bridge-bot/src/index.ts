@@ -270,7 +270,7 @@ async function askForText(ctx: Context, command: string, topicId: number, images
   const spec = NEEDS_TEXT[command];
   const sent = await sendRich(bot.api, ctx.chat!.id, spec.ask, {
     message_thread_id: topicId,
-    reply_markup: { force_reply: true, selective: true, input_field_placeholder: spec.placeholder },
+    reply_markup: { force_reply: true, input_field_placeholder: spec.placeholder },
   });
   prompts.add(sent.message_id, { command, topicId, images });
 }
@@ -407,7 +407,7 @@ async function handlePlanButton(ctx: Context): Promise<void> {
     await ctx.answerCallbackQuery("Trả lời tin nhắn mình vừa gửi nhé");
     const sent = await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\n**Trả lời tin nhắn này** bằng góp ý, ví dụ: tách bước 2 thành hai bước nhỏ hơn. Có ảnh minh hoạ thì đính kèm luôn nhé 📎`, {
       message_thread_id: room.topicId,
-      reply_markup: { force_reply: true, selective: true, input_field_placeholder: `Góp ý cho plan ${task}` },
+      reply_markup: { force_reply: true, input_field_placeholder: `Góp ý cho plan ${task}` },
     });
     prompts.add(sent.message_id, { command: `/revise ${task}`, topicId: room.topicId, images: [] });
     return;
