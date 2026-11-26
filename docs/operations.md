@@ -62,5 +62,6 @@ Verify stays with Claude (`DEFAULT_VERIFY_AGENT="claude"`), so keep `Verify mode
 | No 👀 at all | The bridge ignored the message (see `Ignored message` above) or the bot cannot react: check `reaction failed:` in `bridge-bot/bridge.sh logs` |
 | Two bridges, Telegram error 409 | Another bridge process is running (an old terminal); stop it, keep only `bridge.sh` |
 | `Working tree chưa sạch` on hand-off | Something in the project is uncommitted; commit it, then `/resume`. `.agents/board.md` and `.agents/room.env` are runtime state and must be git-ignored (`install.sh` does this and untracks them if an older install committed them) |
+| `/resume` answers "đang chạy" but nothing runs | A room was stopped while OpenCode worked (upgrade, tmux exit), leaving the status `running` and a `.agents/queue/*.job.running` file. The watcher now queues such a job again when it starts (restart the room: `scripts/agent-room.sh stop` then `start`); on an older kit rename the file to `.job` and set the task's `.agents/status/*.status` to `queued` |
 | Room stops itself | A task was stuck or BLOCKED; read `.agents/logs/` and the board, then `/resume` or `/stop` |
 | `command not found: agent-room.sh` | Run it from the project root as `scripts/agent-room.sh` |
