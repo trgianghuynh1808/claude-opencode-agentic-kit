@@ -22,4 +22,8 @@ left2 = mod.step_report("s", 2, [], [("abc1234", "feat: x")], [("T1", "PASS")], 
 check("leftover with data shows Commit and tests", "abc1234" in left2 and "T1" in left2)
 step = mod.step_report("s", 2, [(1, True, "vừa", "do x")], [], [], False)
 check("finished step keeps its 'none yet' lines", "chưa có commit mới" in step and "chưa có test nào" in step)
+tagged = mod.step_report("s", 2, [(1, True, "vừa", "do x")], [], [], False, tid="T12")
+check("step report names its task", tagged.splitlines()[0].startswith("✅ **T12 · Bước 1/2**"))
+check("leftover report names its task", mod.step_report("s", 2, [], [], [], False, ["n"], tid="T12").splitlines()[0] == "📝 **T12 · Phần còn lại** của task")
+check("no id -> header as before", mod.step_report("s", 2, [(1, True, "vừa", "x")], [], [], False).splitlines()[0] == "✅ **Bước 1/2** xong rồi nè!")
 sys.exit(1 if bad else 0)

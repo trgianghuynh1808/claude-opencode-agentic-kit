@@ -1246,12 +1246,13 @@ def plan_mtime(slug):
     return os.path.getmtime(p) if p and os.path.exists(p) else 0
 
 
-def step_report(slug, total, done_steps, commits, changed, linked, notes=None):
+def step_report(slug, total, done_steps, commits, changed, linked, notes=None, tid=""):
     """ONE message per finished step(s): what the step was (with difficulty), commits (linked), test results. There is no separate start message."""
     base = repo_web_url()
     nums = ", ".join(str(x[0]) for x in done_steps)
-    out = [f"✅ **Bước {nums}/{total}** xong rồi nè!" if len(done_steps) == 1 else
-           f"✅ **Bước {nums}/{total}** xong hết rồi nè!" if done_steps else "📝 **Phần còn lại** của task"]
+    who = f"{tid} · " if tid else ""   # several tasks can be in flight: every message names its task
+    out = [f"✅ **{who}Bước {nums}/{total}** xong rồi nè!" if len(done_steps) == 1 else
+           f"✅ **{who}Bước {nums}/{total}** xong hết rồi nè!" if done_steps else f"📝 **{who}Phần còn lại** của task"]
     if done_steps:
         out += ["", "**Mô tả**"]
         for n, _, label, txt in done_steps:
@@ -1412,7 +1413,7 @@ def _cmd_progress(slug, flush=False):
     # Notes alone never make a message: with no step, commit or test to report they wait for the end-of-task report (F), which lists them all.
     if (done_steps and settled) or (flush and (new_commits or changed)):
         linked = push_task_branch(slug, st) if new_commits else False
-        emit("dev", step_report(slug, total, done_steps, new_commits, changed, linked, new_notes))
+        emit("dev", step_report(slug, total, done_steps, new_commits, changed, linked, new_notes, tid=t["id"]))
         st["steps"] += [x[0] for x in done_steps]
         st["commits"] += [c[0] for c in new_commits]
         st["tests"].update(dict(changed))
@@ -1427,7 +1428,7 @@ def _cmd_progress(slug, flush=False):
         st["shots"] = sorted(set(st["shots"]) | set(new_shots))
         st["task_shots"] = sorted(set(st.get("task_shots", [])) | set(new_shots))   # evidence of THIS task, used by the reports
         if verify == "FAIL":
-            body = ["🔎 **Verify chưa qua** ❌ Mình thấy có chỗ chưa đúng, đang xem lại nha."]
+            body = [f"🔎 **{t['id']} · Verify chưa qua** ❌ Mình thấy có chỗ chưa đúng, đang xem lại nha."]
             if st["verify_notes"]:
                 body += ["", "**Ghi chú**"] + [f"- {n}" for n in st["verify_notes"]]
             if new_shots:
@@ -1445,7 +1446,7 @@ def _cmd_progress(slug, flush=False):
                 if not _done and _txt.lstrip().lower().startswith("fix"):
                     todo.append("- " + short(re.sub(r"^Fix:\s*", "", _txt.lstrip(), flags=re.I), 100))
             todo = todo[:3]
-            emit("techlead", f"Có chút trục trặc nên mình mở **vòng sửa {n_fix}** rồi giao lại OpenCode nha 🔁"
+            emit("techlead", f"Có chút trục trặc ở **{t['id']}** nên mình mở **vòng sửa {n_fix}** rồi giao lại OpenCode nha 🔁"
                  + ("\n\n**Sẽ sửa**\n" + "\n".join(todo) if todo else ""))
             st["fix"].append(h)
             sent += 1
@@ -1703,6 +1704,10 @@ def main(argv):
     c, a = argv[1], argv[2:]
     if c == "inbox":
         return cmd_inbox(a[0])
+    if c == "task-id":   # task-id <slug|task file>: print the task id (T12) so shell callers can name the task in their messages
+        key = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(a[0]).removesuffix(".md")) if a else ""
+        print(next((t["id"] for t in tasks(read_board()) if t["slug"] == key), ""))
+        return 0
     if c == "say":
         emit(a[0], a[1].replace("\\n", "\n"))  # shell callers write \n inside "..." strings
         return 0

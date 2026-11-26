@@ -63,4 +63,10 @@ check "plain /resume turns the room on and unblocks" 'grep -q "^AUTO_MODE=\"true
 board; auto false
 R="$(cmd /resume T03)"
 check "/resume T03 on a stopped room also turns it on" 'grep -q "^AUTO_MODE=\"true\"" .agents/room.env && [[ "$(state T03)" == "[pending]" ]]'
+
+echo "task-id lookup (used by the watcher's messages):"
+board
+check "task-id maps a task file to its id"       '[[ "$(python3 scripts/room-ops.py task-id .agents/tasks/2026-01-01-task-03-t3.md)" == "T03" ]]'
+check "task-id maps a bare slug too"             '[[ "$(python3 scripts/room-ops.py task-id task-04-t4)" == "T04" ]]'
+check "unknown slug -> empty"                    '[[ -z "$(python3 scripts/room-ops.py task-id task-99-nope)" ]]'
 exit $fail
