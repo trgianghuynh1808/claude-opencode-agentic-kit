@@ -268,9 +268,10 @@ async function saveImage(room: Room, ref: ImageRef, n: number): Promise<string |
 
 async function askForText(ctx: Context, command: string, topicId: number, images: ImageRef[]): Promise<void> {
   const spec = NEEDS_TEXT[command];
+  // No force_reply: Telegram keeps its "Reply to…" bar open until the user dismisses it. The next message answers anyway; a button cancels.
   const sent = await sendRich(bot.api, ctx.chat!.id, spec.ask, {
     message_thread_id: topicId,
-    reply_markup: { force_reply: true, input_field_placeholder: spec.placeholder },
+    reply_markup: new InlineKeyboard().text("❌ Bỏ qua", `pc:${topicId}`),
   });
   prompts.add(sent.message_id, { command, topicId, images });
 }
@@ -400,6 +401,12 @@ async function handleMessage(ctx: Context, rawText: string, imageRefs: ImageRef[
 }
 bot.on("callback_query:data", async (ctx) => {
   if (ctx.from.id !== ADMIN_USER_ID) return void (await ctx.answerCallbackQuery());
+  if (ctx.callbackQuery.data.startsWith("pc:")) {   // cancel a pending "what do you want?" prompt
+    prompts.clearTopic(Number(ctx.callbackQuery.data.slice(3)));
+    await ctx.answerCallbackQuery("Đã bỏ qua");
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+    return;
+  }
   if (ctx.callbackQuery.data.startsWith("nr:")) return void (await handleNewRoomButton(ctx));
   if (ctx.callbackQuery.data.startsWith("cl:")) return void (await handleClearButton(ctx));
   if (ctx.callbackQuery.data.startsWith("pl:")) return void (await handlePlanButton(ctx));
@@ -420,7 +427,7 @@ async function handlePlanButton(ctx: Context): Promise<void> {
     await ctx.answerCallbackQuery("Gõ góp ý ở tin kế tiếp nhé");
     const sent = await sendRich(bot.api, CHAT_ID, `Bạn muốn sửa gì ở plan **${task}**? ✏️\n**Tin nhắn kế tiếp của bạn** sẽ là góp ý, ví dụ: tách bước 2 thành hai bước nhỏ hơn. Có ảnh minh hoạ thì gửi kèm luôn nhé 📎`, {
       message_thread_id: room.topicId,
-      reply_markup: { force_reply: true, input_field_placeholder: `Góp ý cho plan ${task}` },
+      reply_markup: new InlineKeyboard().text("❌ Bỏ qua", `pc:${room.topicId}`),
     });
     prompts.add(sent.message_id, { command: `/revise ${task}`, topicId: room.topicId, images: [] });
     return;
