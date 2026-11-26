@@ -40,6 +40,7 @@ claude-opencode-agentic-kit/
 │   ├── test-ship-timeline.py       # per-phase timing block of the ship message
 │   ├── test-claude-result.py       # usage.log row and tools.log from Claude's stream-json output
 │   ├── test-room-ops-shots.py      # a task's own screenshots only (task-NN-* / slug)
+│   ├── test-ship-leftover-plan.py  # /ship commits a board task's leftover plan file on staging, leaves orphans
 │   ├── test-leftover-report.py     # leftover step report: only sections with content, notes never sent alone
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
