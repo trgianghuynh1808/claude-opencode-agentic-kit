@@ -34,6 +34,7 @@ claude-opencode-agentic-kit/
 │   ├── test-config.sh              # /automode, /config, settings block on the board
 │   ├── test-inbox-images.sh        # /task and /revise with pictures through the inbox
 │   ├── test-attachments.py         # attach_images: only inbox/files, only images
+│   ├── test-watcher-requeue.sh     # a cut-off .job.running is queued again when the watcher starts
 │   ├── test-resume.sh              # /resume and /resume T03 (one blocked task, even while running)
 │   ├── test-ship-timeline.py       # per-phase timing block of the ship message
 │   ├── test-claude-result.py       # usage.log row and tools.log from Claude's stream-json output

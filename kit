@@ -242,7 +242,10 @@ room_busy() {   # project → in lý do nếu bận
     [[ -f "$f" ]] || continue
     case "$(cut -d' ' -f1 "$f")" in queued|running) echo "OpenCode đang chạy $(basename "$f" .status)"; return 0 ;; esac
   done
-  if grep -qE '^- \[ \] `T[0-9]+` \[(planning|plan_ready|in_progress|awaiting_plan|revise|approved|needs_info)\]' "$p/.agents/board.md" 2>/dev/null; then echo "có task đang dở"; return 0; fi
+  # KIT_UPGRADE_FORCE=1 only skips tasks that wait for YOU (needs_info, awaiting_plan); it never overrides a running room or OpenCode
+  local waiting='planning|plan_ready|in_progress|awaiting_plan|revise|approved|needs_info'
+  [[ -n "${KIT_UPGRADE_FORCE:-}" ]] && waiting='planning|plan_ready|in_progress|revise|approved'
+  if grep -qE "^- \[ \] \`T[0-9]+\` \[($waiting)\]" "$p/.agents/board.md" 2>/dev/null; then echo "có task đang dở"; return 0; fi
   if [[ -f "$p/.agents/plan.pid" ]] && kill -0 "$(cat "$p/.agents/plan.pid" 2>/dev/null)" 2>/dev/null; then echo "đang trả lời một câu hỏi /plan"; return 0; fi
   return 1
 }
@@ -254,7 +257,7 @@ upgrade_one() {   # name path → trả 0 nếu đã nâng cấp
   echo ""; echo "${B}$name${X} ${D}($p)${X}"
   [[ -d "$p" ]] || { warn "thư mục không còn tồn tại, bỏ qua"; return 1; }
   [[ -f "$p/.agents/room.env" ]] || { warn "không phải phòng (thiếu .agents/room.env), bỏ qua"; return 1; }
-  if [[ -z "${KIT_UPGRADE_FORCE:-}" ]] && reason="$(room_busy "$p")"; then warn "đang bận ($reason), bỏ qua. Chạy lại khi phòng rảnh."; return 1; fi
+  if reason="$(room_busy "$p")"; then warn "đang bận ($reason), bỏ qua. Chạy lại khi phòng rảnh."; return 1; fi
   if [[ -n "$(git -C "$p" status --porcelain)" ]]; then warn "cây git đang dơ, bỏ qua. Commit rồi chạy lại."; git -C "$p" status --short | head -5 | sed 's/^/      /'; return 1; fi
   room_running "$name" && was_running=1
   (( was_running )) && { (cd "$p" && scripts/agent-room.sh stop >/dev/null) && ok "Đã dừng phòng để cập nhật"; }
