@@ -112,7 +112,7 @@ The installer:
 
 - **always updates** everything in `scripts/` (re-run it to upgrade the kit);
 - **creates only if missing** `CLAUDE.md`, `AGENTS.md`, `.agents/config.sh`, `.agents/tasks/_TEMPLATE.md` (use `--force` to overwrite);
-- adds `.agents/queue/`, `.agents/status/`, `.agents/run.log`, `test-results/`, `playwright-report/` to `.gitignore`.
+- adds `.agents/queue/`, `.agents/status/`, `.agents/run.log`, `test-results/`, `playwright-report/` to `.gitignore` (in a multi-room project also the runtime folders such as `.agents/board.md`, `room.env`, `logs/`, `timeline/`).
 
 > Upgrading an existing project? The installer never overwrites `CLAUDE.md` / `AGENTS.md`, so newer template sections
 > (e.g. **Documentation Rules**, which makes agents re-check the README and docs after every change) must be copied over by hand.

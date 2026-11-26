@@ -6,7 +6,7 @@
 
 ```
 claude-opencode-agentic-kit/
-├── kit                             # CLI: new | add | upgrade | status | remove (see "The kit command")
+├── kit                             # CLI: new | add | upgrade | status | scan | remove | attach | logs (see "The kit command")
 ├── install.sh                      # install/upgrade the kit in a project
 ├── scripts/
 │   ├── run-task.sh                 # run a task's steps + Verify
@@ -17,7 +17,7 @@ claude-opencode-agentic-kit/
 │   ├── manager-loop.sh             # multi-room: daemon (inbox, board state machine, waits for OpenCode, calls Claude only when needed)
 │   ├── agent-room.sh               # multi-room: init | start | stop | status for a project room
 │   ├── board-view.sh               # multi-room: board pane of the tmux dashboard (redraws only on change)
-│   ├── room-ops.py                 # multi-room: deterministic commands, plan checks, ship, usage log (no AI)
+│   ├── room-ops.py                 # multi-room: deterministic commands, plan checks, ship (with timing), usage/tools log, /resume (no AI)
 │   ├── wait-task.sh                # Claude waits for OpenCode (done / stuck / running)
 │   └── notify.sh                   # desktop notification
 ├── tools/                          # kit maintenance only (not installed into projects)
@@ -32,6 +32,11 @@ claude-opencode-agentic-kit/
 │   ├── test-notes.sh               # Lưu ý, ship-card checks, review notes, non-silent notices
 │   ├── test-plan-approval.sh       # plan card, /approve /revise /reject, auto mode, daemon waiting
 │   ├── test-config.sh              # /automode, /config, settings block on the board
+│   ├── test-resume.sh              # /resume and /resume T03 (one blocked task, even while running)
+│   ├── test-ship-timeline.py       # per-phase timing block of the ship message
+│   ├── test-claude-result.py       # usage.log row and tools.log from Claude's stream-json output
+│   ├── test-room-ops-shots.py      # a task's own screenshots only (task-NN-* / slug)
+│   ├── test-leftover-report.py     # leftover step report: only sections with content, notes never sent alone
 │   ├── test-run-task-prompt.sh     # checks the OpenCode prompts carry the process-safety and selector rules
 │   └── test-daemon-prompts.sh      # regression test: every prompt the daemon builds is non-empty
 ├── template/                       # files copied into your project
